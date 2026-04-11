@@ -249,6 +249,7 @@ def create_find_tool(
         parameters=_FIND_PARAMETERS,
         label="find",
         execute=execute,
+        prompt_snippet="Find files by glob pattern (respects .gitignore)",
     )
 
 

@@ -105,6 +105,8 @@ def create_write_tool(
         parameters=_WRITE_PARAMETERS,
         label="write",
         execute=execute,
+        prompt_snippet="Create or overwrite files",
+        prompt_guidelines=["Use write only for new files or complete rewrites."],
     )
 
 

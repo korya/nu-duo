@@ -42,6 +42,10 @@ from nu_ai import (
     get_model,
 )
 
+from nu_coding_agent.core.system_prompt import (
+    BuildSystemPromptOptions,
+    build_system_prompt,
+)
 from nu_coding_agent.core.tools import create_all_tools
 
 if TYPE_CHECKING:
@@ -344,9 +348,23 @@ async def _run_print_mode(args: _Args, model: Model) -> int:
     cwd = await asyncio.to_thread(_resolve_cwd_sync, args.cwd)
     tools: list[AgentTool[Any, Any]] = [] if args.no_tools else create_all_tools(cwd)
 
-    initial_state: dict[str, Any] = {"model": model, "tools": tools}
-    if args.system_prompt is not None:
-        initial_state["system_prompt"] = args.system_prompt
+    # Build the system prompt from the active tool list. ``--system-prompt``
+    # replaces the default identity/tools/guidelines block; otherwise the
+    # default mentions the seven tools, the standard guidelines, and the
+    # working directory + date footer.
+    system_prompt = build_system_prompt(
+        BuildSystemPromptOptions(
+            custom_prompt=args.system_prompt,
+            tools=tools,
+            cwd=cwd,
+        )
+    )
+
+    initial_state: dict[str, Any] = {
+        "model": model,
+        "tools": tools,
+        "system_prompt": system_prompt,
+    }
 
     agent = Agent(AgentOptions(initial_state=initial_state))
 

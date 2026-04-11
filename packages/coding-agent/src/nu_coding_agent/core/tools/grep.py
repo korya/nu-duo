@@ -285,6 +285,7 @@ def create_grep_tool(
         parameters=_GREP_PARAMETERS,
         label="grep",
         execute=execute,
+        prompt_snippet="Search file contents for patterns (respects .gitignore)",
     )
 
 

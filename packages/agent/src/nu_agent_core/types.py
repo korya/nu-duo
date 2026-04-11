@@ -115,9 +115,15 @@ type AgentToolUpdateCallback[TDetails] = Callable[[AgentToolResult[TDetails]], N
 class AgentTool[TParams, TDetails]:
     """Tool definition used by the agent runtime.
 
-    Unlike :class:`nu_ai.types.Tool` this includes a UI label,
-    an optional ``prepare_arguments`` shim, and the actual ``execute``
-    callable.
+    Unlike :class:`nu_ai.types.Tool` this includes a UI label, optional
+    prompt-snippet metadata used by system-prompt builders, an optional
+    ``prepare_arguments`` shim, and the actual ``execute`` callable.
+
+    Upstream pi-coding-agent splits these fields across two wrapper
+    types (``AgentTool`` for the runtime, ``ToolDefinition`` for the
+    coding-agent extras). The Python port collapses both into a single
+    dataclass — the optional fields default to ``None``/``[]`` so any
+    code that only cares about the runtime contract can ignore them.
     """
 
     name: str
@@ -130,6 +136,14 @@ class AgentTool[TParams, TDetails]:
     """Async callable: ``(tool_call_id, params, signal, on_update) -> AgentToolResult``."""
     prepare_arguments: Callable[[Any], TParams] | None = None
     """Optional compatibility shim applied before schema validation."""
+    prompt_snippet: str | None = None
+    """One-line description used in the system prompt's tool list.
+
+    ``nu_coding_agent.core.system_prompt.build_system_prompt`` only
+    surfaces tools that have a non-empty snippet.
+    """
+    prompt_guidelines: list[str] | None = None
+    """Optional bullet-point guidelines appended to the system prompt."""
 
 
 # ---------------------------------------------------------------------------

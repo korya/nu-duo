@@ -240,6 +240,8 @@ def create_read_tool(
         parameters=_READ_PARAMETERS,
         label="read",
         execute=execute,
+        prompt_snippet="Read file contents",
+        prompt_guidelines=["Use read to examine files instead of cat or sed."],
     )
 
 

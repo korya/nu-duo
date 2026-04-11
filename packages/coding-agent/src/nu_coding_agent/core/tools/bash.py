@@ -383,6 +383,7 @@ def create_bash_tool(
         parameters=_BASH_PARAMETERS,
         label="bash",
         execute=execute,
+        prompt_snippet="Execute bash commands (ls, grep, find, etc.)",
     )
 
 

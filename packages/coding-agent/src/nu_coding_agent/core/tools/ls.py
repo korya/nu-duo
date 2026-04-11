@@ -185,6 +185,7 @@ def create_ls_tool(
         parameters=_LS_PARAMETERS,
         label="ls",
         execute=execute,
+        prompt_snippet="List directory contents",
     )
 
 
