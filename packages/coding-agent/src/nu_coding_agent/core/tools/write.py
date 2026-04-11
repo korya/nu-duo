@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from nu_agent_core.types import AgentTool, AgentToolResult
 from nu_ai.types import TextContent
 
+from nu_coding_agent.core.tools.file_mutation_queue import with_file_mutation_queue
 from nu_coding_agent.core.tools.path_utils import resolve_to_cwd
 
 if TYPE_CHECKING:
@@ -85,16 +86,20 @@ def create_write_tool(
         path: str = params["path"]
         content: str = params["content"]
         absolute_path = resolve_to_cwd(path, cwd)
-        await mkdir(str(Path(absolute_path).parent))
-        await write_file(absolute_path, content)
-        return AgentToolResult(
-            content=[
-                TextContent(
-                    text=f"Successfully wrote {len(content.encode('utf-8'))} bytes to {path}",
-                )
-            ],
-            details=None,
-        )
+
+        async def _do_write() -> AgentToolResult[None]:
+            await mkdir(str(Path(absolute_path).parent))
+            await write_file(absolute_path, content)
+            return AgentToolResult(
+                content=[
+                    TextContent(
+                        text=f"Successfully wrote {len(content.encode('utf-8'))} bytes to {path}",
+                    )
+                ],
+                details=None,
+            )
+
+        return await with_file_mutation_queue(absolute_path, _do_write)
 
     return AgentTool[dict[str, Any], None](
         name="write",

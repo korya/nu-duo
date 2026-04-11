@@ -28,6 +28,7 @@ from nu_coding_agent.core.tools.edit_diff import (
     restore_line_endings,
     strip_bom,
 )
+from nu_coding_agent.core.tools.file_mutation_queue import with_file_mutation_queue
 from nu_coding_agent.core.tools.path_utils import resolve_to_cwd
 
 if TYPE_CHECKING:
@@ -210,31 +211,34 @@ def create_edit_tool(
         path, edits = _validate_edit_input(prepared)
         absolute_path = resolve_to_cwd(path, cwd)
 
-        try:
-            await access(absolute_path)
-        except (FileNotFoundError, IsADirectoryError) as exc:
-            raise ValueError(f"File not found: {path}") from exc
+        async def _do_edit() -> AgentToolResult[EditToolDetails | None]:
+            try:
+                await access(absolute_path)
+            except (FileNotFoundError, IsADirectoryError) as exc:
+                raise ValueError(f"File not found: {path}") from exc
 
-        buffer = await read_file(absolute_path)
-        raw_content = buffer.decode("utf-8")
-        bom, content = strip_bom(raw_content)
-        original_ending = detect_line_ending(content)
-        normalized_content = normalize_to_lf(content)
-        applied = apply_edits_to_normalized_content(normalized_content, edits, path)
+            buffer = await read_file(absolute_path)
+            raw_content = buffer.decode("utf-8")
+            bom, content = strip_bom(raw_content)
+            original_ending = detect_line_ending(content)
+            normalized_content = normalize_to_lf(content)
+            applied = apply_edits_to_normalized_content(normalized_content, edits, path)
 
-        final_content = bom + restore_line_endings(applied.new_content, original_ending)
-        await write_file(absolute_path, final_content)
+            final_content = bom + restore_line_endings(applied.new_content, original_ending)
+            await write_file(absolute_path, final_content)
 
-        diff_result = generate_diff_string(applied.base_content, applied.new_content)
-        return AgentToolResult(
-            content=[
-                TextContent(text=f"Successfully replaced {len(edits)} block(s) in {path}."),
-            ],
-            details=EditToolDetails(
-                diff=diff_result.diff,
-                first_changed_line=diff_result.first_changed_line,
-            ),
-        )
+            diff_result = generate_diff_string(applied.base_content, applied.new_content)
+            return AgentToolResult(
+                content=[
+                    TextContent(text=f"Successfully replaced {len(edits)} block(s) in {path}."),
+                ],
+                details=EditToolDetails(
+                    diff=diff_result.diff,
+                    first_changed_line=diff_result.first_changed_line,
+                ),
+            )
+
+        return await with_file_mutation_queue(absolute_path, _do_edit)
 
     return AgentTool[dict[str, Any], EditToolDetails | None](
         name="edit",
