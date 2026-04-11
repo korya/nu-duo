@@ -32,8 +32,12 @@ from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from nu_coding_agent.core.skills import format_skills_for_prompt
+
 if TYPE_CHECKING:
     from nu_agent_core.types import AgentTool
+
+    from nu_coding_agent.core.skills import Skill
 
 
 @dataclass(slots=True)
@@ -69,6 +73,9 @@ class BuildSystemPromptOptions:
     context_files: list[ContextFile] | None = None
     """Pre-loaded project context files (e.g. AGENTS.md, README.md)."""
 
+    skills: list[Skill] | None = None
+    """Loaded skills — rendered into the prompt via :func:`format_skills_for_prompt`."""
+
 
 _DEFAULT_GUIDELINES = (
     "Be concise in your responses",
@@ -91,6 +98,8 @@ def build_system_prompt(options: BuildSystemPromptOptions | None = None) -> str:
     append_section = f"\n\n{opts.append_system_prompt}" if opts.append_system_prompt else ""
     context_files = opts.context_files or []
     tools = opts.tools or []
+    skills = opts.skills or []
+    skills_section = format_skills_for_prompt(skills) if skills else ""
 
     # Custom prompt path: drop identity/tools/guidelines, keep the suffix.
     if opts.custom_prompt is not None:
@@ -99,6 +108,8 @@ def build_system_prompt(options: BuildSystemPromptOptions | None = None) -> str:
             prompt += append_section
         if context_files:
             prompt += _format_context_section(context_files)
+        if skills_section:
+            prompt += skills_section
         prompt += _format_footer(today, prompt_cwd)
         return prompt
 
@@ -122,6 +133,8 @@ def build_system_prompt(options: BuildSystemPromptOptions | None = None) -> str:
         prompt += append_section
     if context_files:
         prompt += _format_context_section(context_files)
+    if skills_section:
+        prompt += skills_section
     prompt += _format_footer(today, prompt_cwd)
     return prompt
 
