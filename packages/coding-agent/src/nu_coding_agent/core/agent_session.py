@@ -1,0 +1,425 @@
+"""Simplified ``AgentSession`` — port of ``packages/coding-agent/src/core/agent-session.ts``.
+
+This is a *focused* port. The upstream class is 3059 LoC and pulls in
+extensions, retry, navigation, HTML export, bash exec, slash command
+expansion, and skill-block parsing. Many of those depend on subsystems
+the Python port hasn't reached yet (extensions/, package_manager,
+modes/interactive, …). This port covers the core lifecycle that
+``modes/print_mode`` and the eventual ``modes/rpc`` actually need:
+
+* Wraps an existing :class:`nu_agent_core.agent.Agent` together with
+  a :class:`nu_coding_agent.core.session_manager.SessionManager`,
+  :class:`ModelRegistry`, and :class:`AuthStorage`.
+* ``prompt(text, images)`` runs one full turn end-to-end:
+  validates credentials → appends a user message to the session →
+  calls ``agent.prompt`` → persists every assistant + tool-result
+  message that lands.
+* ``set_model(model)`` swaps the active model on the agent's state
+  and emits a ``model_change`` session entry so a resume picks the
+  same model.
+* ``get_stats()`` returns the same :class:`SessionStats` shape the
+  upstream's ``/session`` command shows.
+* The active event listener subscribes once on construction and
+  cleans itself up via :meth:`close`.
+
+Once :mod:`nu_coding_agent.core.extensions` and the runtime port
+land, this module gets folded back together with the full upstream
+surface (compaction triggers, retry, slash-command dispatch, …).
+"""
+
+from __future__ import annotations
+
+import contextlib
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from nu_coding_agent.core.compaction import (
+    DEFAULT_COMPACTION_SETTINGS,
+    CompactionSettings,
+    calculate_context_tokens,
+    compact,
+    estimate_context_tokens,
+    get_last_assistant_usage,
+    prepare_compaction,
+    should_compact,
+)
+
+if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Awaitable, Callable
+
+    from nu_agent_core.agent import Agent
+    from nu_agent_core.types import AgentEvent
+    from nu_ai.types import ImageContent, Model
+
+    from nu_coding_agent.core.auth_storage import AuthStorage
+    from nu_coding_agent.core.compaction import CompactionPreparation, CompactionResult
+    from nu_coding_agent.core.model_registry import ModelRegistry
+    from nu_coding_agent.core.session_manager import SessionManager
+
+
+# ---------------------------------------------------------------------------
+# Public types
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class SessionStats:
+    """The same shape the upstream ``/session`` command emits."""
+
+    session_file: str | None
+    session_id: str
+    user_messages: int
+    assistant_messages: int
+    tool_calls: int
+    tool_results: int
+    total_messages: int
+    tokens_input: int
+    tokens_output: int
+    tokens_cache_read: int
+    tokens_cache_write: int
+    tokens_total: int
+    cost: float
+
+
+@dataclass(slots=True)
+class AgentSessionConfig:
+    """Constructor knobs for :class:`AgentSession`."""
+
+    agent: Agent
+    session_manager: SessionManager
+    model_registry: ModelRegistry
+    auth_storage: AuthStorage
+    cwd: str
+    compaction_settings: CompactionSettings = field(default_factory=lambda: DEFAULT_COMPACTION_SETTINGS)
+
+
+# Listener: receives every :class:`AgentEvent` synchronously after the
+# session has already persisted it. Mirrors the upstream's "subscribe to
+# session-aware events" pattern. Returning ``None`` is fine; returning
+# an awaitable is also fine — it gets awaited.
+type AgentSessionListener = Callable[[AgentEvent], Awaitable[None] | None]
+
+
+# ---------------------------------------------------------------------------
+# AgentSession
+# ---------------------------------------------------------------------------
+
+
+class AgentSession:
+    """Glues an :class:`Agent` to a :class:`SessionManager` lifecycle."""
+
+    def __init__(self, config: AgentSessionConfig) -> None:
+        self._agent = config.agent
+        self._session_manager = config.session_manager
+        self._model_registry = config.model_registry
+        self._auth_storage = config.auth_storage
+        self._cwd = config.cwd
+        self._compaction_settings = config.compaction_settings
+
+        self._listeners: list[AgentSessionListener] = []
+        self._closed = False
+
+        # The persisting listener runs first so user-supplied subscribers
+        # always observe events that are already on disk.
+        self._unsubscribe_agent: Callable[[], None] | None = self._agent.subscribe(self._handle_agent_event)
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def create(
+        cls,
+        *,
+        agent: Agent,
+        session_manager: SessionManager,
+        model_registry: ModelRegistry,
+        auth_storage: AuthStorage,
+        cwd: str,
+        compaction_settings: CompactionSettings | None = None,
+    ) -> AgentSession:
+        """Build an :class:`AgentSession` from the four required collaborators."""
+        return cls(
+            AgentSessionConfig(
+                agent=agent,
+                session_manager=session_manager,
+                model_registry=model_registry,
+                auth_storage=auth_storage,
+                cwd=cwd,
+                compaction_settings=compaction_settings or DEFAULT_COMPACTION_SETTINGS,
+            )
+        )
+
+    def close(self) -> None:
+        """Detach the session listener from the agent. Safe to call twice."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._unsubscribe_agent is not None:
+            self._unsubscribe_agent()
+            self._unsubscribe_agent = None
+
+    # ------------------------------------------------------------------
+    # Accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def agent(self) -> Agent:
+        return self._agent
+
+    @property
+    def session_manager(self) -> SessionManager:
+        return self._session_manager
+
+    @property
+    def model_registry(self) -> ModelRegistry:
+        return self._model_registry
+
+    @property
+    def auth_storage(self) -> AuthStorage:
+        return self._auth_storage
+
+    @property
+    def cwd(self) -> str:
+        return self._cwd
+
+    @property
+    def model(self) -> Model | None:
+        """Active model, or ``None`` if the agent is using its placeholder default."""
+        candidate = self._agent.state.model
+        if candidate.api == "unknown":
+            return None
+        return candidate
+
+    # ------------------------------------------------------------------
+    # Event subscription
+    # ------------------------------------------------------------------
+
+    def subscribe(self, listener: AgentSessionListener) -> Callable[[], None]:
+        """Register a listener for every :class:`AgentEvent` (after persistence)."""
+        self._listeners.append(listener)
+
+        def unsubscribe() -> None:
+            with contextlib.suppress(ValueError):
+                self._listeners.remove(listener)
+
+        return unsubscribe
+
+    async def _handle_agent_event(self, event: AgentEvent, _signal: asyncio.Event) -> None:
+        """Persist the event into the session, then forward to user listeners."""
+        await self._persist_event(event)
+        for listener in list(self._listeners):
+            try:
+                result = listener(event)
+                if result is not None:
+                    await result
+            except Exception as exc:
+                # Mirrors the upstream's "swallow + log" semantics so a
+                # broken subscriber doesn't take the agent down.
+                import sys  # noqa: PLC0415
+
+                print(f"AgentSession listener error: {exc}", file=sys.stderr)
+
+    async def _persist_event(self, event: AgentEvent) -> None:
+        """Persist ``message_end`` events into the session JSONL.
+
+        The agent loop emits a ``message_end`` for every message it
+        processes — user prompts, assistant replies, AND
+        :class:`ToolResultMessage` entries. Catching that single event
+        type is enough to mirror the conversation tree onto disk; the
+        ``tool_execution_end`` event is just metadata for UI renderers
+        and would double-write tool results if persisted here too.
+        """
+        if event["type"] != "message_end":
+            return
+        self._session_manager.append_message(event["message"])
+
+    # ------------------------------------------------------------------
+    # prompt() / set_model()
+    # ------------------------------------------------------------------
+
+    async def prompt(
+        self,
+        text: str,
+        *,
+        images: list[ImageContent] | None = None,
+    ) -> None:
+        """Run one full turn against the agent, persisting along the way.
+
+        Validates that:
+        1. A model is selected on the agent.
+        2. The model's provider has credentials configured (api key,
+           OAuth token, or fallback resolver).
+
+        The user message is appended to the session manually before
+        ``agent.prompt`` runs because the agent's persist-on-event
+        pipeline only catches the assistant + tool result entries —
+        the prompt itself never produces a ``message_end`` event.
+        """
+        if self._closed:
+            raise RuntimeError("AgentSession is closed")
+
+        model = self._agent.state.model
+        # The Agent class swaps in a placeholder "unknown" model when
+        # constructed without one — treat that as "no model selected".
+        if model.api == "unknown":
+            raise ValueError("No model selected on the agent.")
+        if not self._model_registry.has_configured_auth(model):
+            raise ValueError(
+                f'No API key configured for provider "{model.provider}". Set the corresponding env var or run /login.'
+            )
+
+        # The agent loop emits a ``message_end`` for the user prompt
+        # itself; the listener catches it and persists it. We don't
+        # build the UserMessage manually here because doing so would
+        # double-write it into the session.
+        if images:
+            # Image attachments aren't yet wired through Agent.prompt(),
+            # so this is a forward-compat check rather than a feature.
+            raise NotImplementedError("Image attachments are not yet supported by AgentSession.prompt().")
+        await self._agent.prompt(text)
+
+    def set_model(self, model: Model) -> None:
+        """Swap the active model and persist a model_change session entry."""
+        self._agent.state.model = model
+        self._session_manager.append_model_change(model.provider, model.id)
+
+    # ------------------------------------------------------------------
+    # Compaction
+    # ------------------------------------------------------------------
+
+    def should_compact(self) -> bool:
+        """Heuristic check used by autonomous runtimes to decide whether to compact."""
+        model = self._agent.state.model
+        if model.api == "unknown":
+            return False
+        usage = get_last_assistant_usage(self._session_manager.get_entries())
+        if usage is None:
+            return False
+        context_tokens = calculate_context_tokens(usage)
+        return should_compact(context_tokens, model.context_window, self._compaction_settings)
+
+    def prepare_compaction(self) -> CompactionPreparation | None:
+        """Pure helper that pickets a cut point on the current branch."""
+        path = self._session_manager.get_branch()
+        return prepare_compaction(path, self._compaction_settings)
+
+    async def compact(self, custom_instructions: str | None = None) -> CompactionResult | None:
+        """Drive the LLM to summarise + persist a compaction entry."""
+        prep = self.prepare_compaction()
+        if prep is None:
+            return None
+        model = self._agent.state.model
+        if model.api == "unknown":
+            raise ValueError("No model selected on the agent.")
+        api_key = await self._auth_storage.get_api_key(model.provider)
+        if api_key is None:
+            raise ValueError(f'No API key for provider "{model.provider}" — cannot compact.')
+        result = await compact(
+            preparation=prep,
+            model=model,
+            api_key=api_key,
+            custom_instructions=custom_instructions,
+        )
+        self._session_manager.append_compaction(
+            summary=result.summary,
+            first_kept_entry_id=result.first_kept_entry_id,
+            tokens_before=result.tokens_before,
+            details=(
+                {
+                    "readFiles": result.details.read_files,
+                    "modifiedFiles": result.details.modified_files,
+                }
+                if result.details
+                else None
+            ),
+        )
+        return result
+
+    # ------------------------------------------------------------------
+    # Session statistics
+    # ------------------------------------------------------------------
+
+    def get_stats(self) -> SessionStats:
+        """Aggregate :class:`SessionStats` from the session JSONL."""
+        entries = self._session_manager.get_entries()
+
+        user_messages = 0
+        assistant_messages = 0
+        tool_calls = 0
+        tool_results = 0
+        tokens_input = 0
+        tokens_output = 0
+        tokens_cache_read = 0
+        tokens_cache_write = 0
+        cost = 0.0
+
+        for entry in entries:
+            if entry.get("type") != "message":
+                continue
+            message = entry.get("message")
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role")
+            if role == "user":
+                user_messages += 1
+            elif role == "assistant":
+                assistant_messages += 1
+                content = message.get("content")
+                if isinstance(content, list):
+                    tool_calls += sum(
+                        1 for block in content if isinstance(block, dict) and block.get("type") == "toolCall"
+                    )
+                usage = message.get("usage")
+                if isinstance(usage, dict):
+                    tokens_input += int(usage.get("input", 0) or 0)
+                    tokens_output += int(usage.get("output", 0) or 0)
+                    tokens_cache_read += int(usage.get("cacheRead", 0) or 0)
+                    tokens_cache_write += int(usage.get("cacheWrite", 0) or 0)
+                    cost_block = usage.get("cost")
+                    if isinstance(cost_block, dict):
+                        cost += float(cost_block.get("total", 0) or 0)
+            elif role == "toolResult":
+                tool_results += 1
+
+        total_tokens = tokens_input + tokens_output + tokens_cache_read + tokens_cache_write
+        total_messages = user_messages + assistant_messages + tool_results
+
+        return SessionStats(
+            session_file=self._session_manager.get_session_file(),
+            session_id=self._session_manager.get_session_id(),
+            user_messages=user_messages,
+            assistant_messages=assistant_messages,
+            tool_calls=tool_calls,
+            tool_results=tool_results,
+            total_messages=total_messages,
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            tokens_cache_read=tokens_cache_read,
+            tokens_cache_write=tokens_cache_write,
+            tokens_total=total_tokens,
+            cost=cost,
+        )
+
+    # ------------------------------------------------------------------
+    # Convenience: estimate the current context size for the live LLM
+    # ------------------------------------------------------------------
+
+    def estimate_context_tokens(self) -> int:
+        """Use ``estimate_context_tokens`` from the compaction module."""
+        context = self._session_manager.build_session_context()
+        return estimate_context_tokens(context.messages).tokens
+
+
+__all__ = [
+    "AgentSession",
+    "AgentSessionConfig",
+    "AgentSessionListener",
+    "SessionStats",
+]
+
+
+# Keep referenced symbols alive for static analyzers that strip
+# unused imports across edits.
+_ = (Any,)

@@ -123,9 +123,31 @@ def _get_message_from_entry_for_compaction(entry: dict[str, Any]) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def calculate_context_tokens(usage: Usage) -> int:
-    """Total context tokens, falling back to component sum when totalTokens=0."""
-    return usage.total_tokens or (usage.input + usage.output + usage.cache_read + usage.cache_write)
+def _usage_field(usage: Any, attr: str, key: str) -> int:
+    """Read a usage field from either a Pydantic model or a dict."""
+    if hasattr(usage, attr):
+        return int(getattr(usage, attr) or 0)
+    if isinstance(usage, dict):
+        return int(usage.get(key, 0) or 0)
+    return 0
+
+
+def calculate_context_tokens(usage: Any) -> int:
+    """Total context tokens, falling back to component sum when totalTokens=0.
+
+    Accepts either a :class:`nu_ai.types.Usage` Pydantic model or a
+    plain ``dict`` (the on-disk JSON shape produced by
+    ``message.model_dump(by_alias=True)``).
+    """
+    total = _usage_field(usage, "total_tokens", "totalTokens")
+    if total:
+        return total
+    return (
+        _usage_field(usage, "input", "input")
+        + _usage_field(usage, "output", "output")
+        + _usage_field(usage, "cache_read", "cacheRead")
+        + _usage_field(usage, "cache_write", "cacheWrite")
+    )
 
 
 def _get_assistant_usage(msg: Any) -> Usage | None:
@@ -550,7 +572,9 @@ def prepare_compaction(
     settings: CompactionSettings,
 ) -> CompactionPreparation | None:
     """Pick the cut point and bundle the messages-to-summarise."""
-    if path_entries and path_entries[-1].get("type") == "compaction":
+    if not path_entries:
+        return None
+    if path_entries[-1].get("type") == "compaction":
         return None
 
     prev_compaction_index = -1
@@ -577,6 +601,8 @@ def prepare_compaction(
 
     cut_point = find_cut_point(path_entries, boundary_start, boundary_end, settings.keep_recent_tokens)
 
+    if cut_point.first_kept_entry_index >= len(path_entries):
+        return None
     first_kept_entry = path_entries[cut_point.first_kept_entry_index]
     if not first_kept_entry.get("id"):
         return None
