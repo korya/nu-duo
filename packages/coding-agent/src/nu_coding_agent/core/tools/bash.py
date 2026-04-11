@@ -207,6 +207,12 @@ def _default_operations() -> BashOperations:
     return BashOperations(exec=_default_exec)
 
 
+# Public alias used by ``nu_coding_agent.core.bash_executor`` and other
+# callers that need to wire the local subprocess backend into a custom
+# :class:`BashOperations`.
+local_bash_exec = _default_exec
+
+
 # ---------------------------------------------------------------------------
 # Tool factory
 # ---------------------------------------------------------------------------
@@ -396,4 +402,5 @@ __all__ = [
     "BashToolDetails",
     "BashToolOptions",
     "create_bash_tool",
+    "local_bash_exec",
 ]
