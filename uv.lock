@@ -940,6 +940,12 @@ requires-dist = [
 name = "nu-pods"
 version = "0.0.0"
 source = { editable = "packages/pods" }
+dependencies = [
+    { name = "nu-coding-agent" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "nu-coding-agent", editable = "packages/coding-agent" }]
 
 [[package]]
 name = "nu-tui"

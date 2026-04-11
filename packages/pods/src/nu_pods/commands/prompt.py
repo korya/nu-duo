@@ -1,11 +1,13 @@
 """Bridge from a deployed model to the coding agent.
 
-Port of ``packages/pods/src/commands/prompt.ts``. The TS version
-ultimately delegates to ``pi-coding-agent`` (or stubs out with ``throw
-new Error("Not implemented")`` in the upstream snapshot we read). The
-Python version produces the argv list that would be passed to ``nu``
-and exposes a callable hook so the CLI / tests can decide whether to
-exec, subprocess, or just inspect.
+Port of ``packages/pods/src/commands/prompt.ts``. Builds the argv list
+that points ``nu`` at the deployed vLLM endpoint (``--base-url`` +
+``--model`` + ``--api-key`` + ``--api`` + ``--system-prompt``) and
+hands it off to the launcher. The default launcher imports
+``nu_coding_agent.cli._async_main`` and dispatches in-process — the
+TypeScript original does the equivalent by calling pi-coding-agent's
+``main`` function with the same argv shape, so this matches upstream
+semantics. Tests override the launcher via :func:`set_launcher`.
 """
 
 from __future__ import annotations
@@ -36,8 +38,16 @@ class PromptInvocation:
 PromptLauncher = Callable[[PromptInvocation], Awaitable[int]]
 
 
-async def _default_launcher(_: PromptInvocation) -> int:
-    raise PodsError("Agent launch is not yet implemented in nu-pods")
+async def _default_launcher(invocation: PromptInvocation) -> int:
+    """Default launcher: dispatch in-process to ``nu_coding_agent.cli``.
+
+    Imports the entry point lazily so ``nu_pods`` keeps a soft
+    coupling to ``nu_coding_agent`` (the import only fires when an
+    ``agent`` subcommand is actually invoked, not at module load).
+    """
+    from nu_coding_agent.cli import async_main as nu_main  # noqa: PLC0415
+
+    return await nu_main(["nu", *invocation.args])
 
 
 @dataclass(slots=True)

@@ -87,6 +87,8 @@ class _Args:
     continue_session: bool = False
     session_file: str | None = None
     ephemeral: bool = False
+    base_url: str | None = None
+    api: str | None = None
     positional: list[str] = field(default_factory=list)
 
 
@@ -151,6 +153,18 @@ def _parse_args(argv: list[str]) -> tuple[_Args, int | None]:
             args.session_file = argv[i]
         elif arg == "--ephemeral":
             args.ephemeral = True
+        elif arg == "--base-url":
+            i += 1
+            if i >= len(argv):
+                _stderr("--base-url requires a value")
+                return args, 2
+            args.base_url = argv[i]
+        elif arg == "--api":
+            i += 1
+            if i >= len(argv):
+                _stderr("--api requires a value")
+                return args, 2
+            args.api = argv[i]
         elif arg.startswith("-"):
             _stderr(f"Unknown flag: {arg}")
             return args, 2
@@ -197,6 +211,14 @@ OPTIONS
   --session FILE           Open a specific session JSONL file.
   --ephemeral              Run entirely in-memory; do not persist a
                            session to disk.
+
+  --base-url URL           Route requests to a custom OpenAI-compatible
+                           endpoint (e.g. a vLLM pod). Implies that
+                           --model and --api-key are supplied directly.
+  --api API                Override the provider routing tag (e.g.
+                           openai-completions / openai-responses).
+                           Defaults to openai-completions when
+                           --base-url is set.
 
   -h, --help               Show this help and exit.
   -v, --version            Print version and exit.
@@ -259,8 +281,35 @@ def _build_anthropic_model(model_id: str) -> Model | None:
     return get_model("anthropic", model_id)
 
 
+def _build_custom_model(args: _Args) -> Model | None:
+    """Build a :class:`Model` from explicit ``--base-url`` / ``--api`` flags.
+
+    Used when the user (or a tool like ``nu-pods agent``) is pointing
+    ``nu`` at a custom OpenAI-compatible endpoint such as a vLLM pod.
+    Returns ``None`` if ``--model`` is missing — without a model id we
+    have nothing to send to the endpoint.
+    """
+    if not args.model:
+        return None
+    api: str = args.api or "openai-completions"
+    return Model(
+        id=args.model,
+        name=args.model,
+        api=api,  # type: ignore[arg-type]
+        provider=args.provider,
+        base_url=args.base_url or "",
+        reasoning=False,
+        input=["text"],
+        cost=ModelCost(input=0, output=0, cache_read=0, cache_write=0),
+        context_window=128_000,
+        max_tokens=16_384,
+    )
+
+
 def _resolve_model(args: _Args) -> Model | None:
-    """Pick the model based on ``--openai``/``--anthropic`` and ``--model``."""
+    """Pick the model based on ``--base-url`` / ``--openai`` / ``--anthropic`` / ``--model``."""
+    if args.base_url is not None:
+        return _build_custom_model(args)
     if args.provider == "openai":
         return _build_openai_model(args.model or _DEFAULT_OPENAI_MODEL_ID)
     return _build_anthropic_model(args.model or _DEFAULT_ANTHROPIC_MODEL_ID)
@@ -500,7 +549,7 @@ async def _run_print_mode(args: _Args, model: Model) -> int:
     return 0
 
 
-async def _async_main(argv: list[str]) -> int:
+async def async_main(argv: list[str]) -> int:
     _load_dotenv()
     args, exit_code = _parse_args(argv)
     if exit_code is not None:
@@ -532,7 +581,7 @@ async def _async_main(argv: list[str]) -> int:
 
 def main() -> None:
     """Synchronous entry point used by the ``nu`` console script."""
-    sys.exit(asyncio.run(_async_main(list(sys.argv))))
+    sys.exit(asyncio.run(async_main(list(sys.argv))))
 
 
 if __name__ == "__main__":

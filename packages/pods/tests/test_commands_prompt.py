@@ -113,17 +113,43 @@ async def test_prompt_model_invokes_launcher(
     assert captured and captured[0].model_id == "m"
 
 
-async def test_prompt_model_default_launcher_raises(
+async def test_prompt_model_default_launcher_dispatches_to_nu_cli(
     isolated_config: Path,
     monkeypatch: pytest.MonkeyPatch,
     reset_prompt_launcher: None,
 ) -> None:
+    """The default launcher hands the invocation argv off to nu_coding_agent."""
     monkeypatch.setenv("NU_API_KEY", "nu_x")
     add_pod("p1", _pod(models={"a": Model(model="m", port=8001, gpu=[0], pid=1)}))
     reset_launcher()
+
+    # Patch the lazy import target so we can capture the argv without
+    # spinning up a real Agent (no LLM endpoint, no SessionManager I/O).
+    captured_argv: list[list[str]] = []
+
+    async def fake_async_main(argv: list[str]) -> int:
+        captured_argv.append(list(argv))
+        return 42
+
+    import nu_coding_agent.cli as nu_cli  # noqa: PLC0415
+
+    monkeypatch.setattr(nu_cli, "async_main", fake_async_main)
+
     out, err = io.StringIO(), io.StringIO()
-    with pytest.raises(PodsError, match="not yet implemented"):
-        await prompt_model("a", [], stdout=out, stderr=err)
+    rc = await prompt_model("a", ["--print", "hi"], stdout=out, stderr=err)
+    assert rc == 42
+
+    assert len(captured_argv) == 1
+    argv = captured_argv[0]
+    assert argv[0] == "nu"
+    # The invocation argv should contain the routing flags + the user prompt.
+    assert "--base-url" in argv
+    assert "--model" in argv
+    assert "--api-key" in argv
+    assert "--api" in argv
+    assert "--system-prompt" in argv
+    assert "--print" in argv
+    assert "hi" in argv
 
 
 async def test_prompt_model_unknown_model_writes_stderr(

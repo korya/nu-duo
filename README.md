@@ -14,7 +14,7 @@ prefixed with `nu-` (PyPI distribution name) / `nu_` (Python import name):
 | `@mariozechner/pi-tui` | `nu-tui` | partial — pure utilities (UndoStack, KillRing, fuzzy, keys, keybindings); Textual-backed renderer + components deferred until consumed by interactive mode |
 | `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — all seven tools (read, write, edit, bash, ls, find, grep), system_prompt, agent_session, session_manager (full tree + JSONL byte-compat with TS, including `create_branched_session`), compaction, print mode wired through `nu --print` with `--continue` / `--session` / `--ephemeral` flags; extensions, skills, RPC mode, interactive mode still deferred |
 | `@mariozechner/pi-mom` | `nu-mom` | scaffold only |
-| `@mariozechner/pi-pods` | `nu-pods` | done — types, config, ssh wrappers, model catalogue, all commands (setup/start/stop/list/logs/models/agent), `nu-pods` CLI; `agent` subcommand resolves invocations but the actual coding-agent launcher is stubbed pending a programmatic spawn entrypoint in nu-coding-agent |
+| `@mariozechner/pi-pods` | `nu-pods` | done — types, config, ssh wrappers, model catalogue, all commands (setup/start/stop/list/logs/models/agent), `nu-pods` CLI; `agent` subcommand bridges into `nu_coding_agent` via `--base-url` / `--api` flags so a deployed vLLM pod is fully usable with `nu --print` semantics |
 | `@mariozechner/pi-web-ui` | `nu-web-ui` | scaffold only |
 
 ## Design goals
@@ -187,10 +187,10 @@ oversights.
 - **`nu-pods agent` launcher.** `build_invocation` resolves a
   deployed model, picks the right `--api` (responses for `gpt-oss`
   models, completions otherwise), and assembles a complete argv list,
-  but the default launcher raises `PodsError("not yet implemented")`.
-  A `set_launcher()` hook is exposed; it'll be wired into
-  `nu_coding_agent` once that package gains a programmatic agent-spawn
-  entrypoint.
+  which the default launcher hands off to `nu_coding_agent.cli`
+  in-process. The `nu` CLI honours `--base-url` / `--api` flags so
+  the same Model construction path works for any OpenAI-compatible
+  endpoint, not just bundled providers.
 - **Bug fix.** `parse_context_size`: a naive transliteration of the
   TS `_CONTEXT_SIZES.get(value.lower(), int(value))` would crash on
   `"4k"` because Python's `dict.get` eagerly evaluates the default

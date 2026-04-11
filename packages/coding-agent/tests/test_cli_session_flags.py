@@ -19,6 +19,7 @@ from nu_coding_agent.cli import (
     _build_auth_storage,  # pyright: ignore[reportPrivateUsage]
     _build_session_manager,  # pyright: ignore[reportPrivateUsage]
     _parse_args,  # pyright: ignore[reportPrivateUsage]
+    _resolve_model,  # pyright: ignore[reportPrivateUsage]
 )
 
 if TYPE_CHECKING:
@@ -208,6 +209,68 @@ def test_build_auth_storage_no_api_key_no_seeded_credential(
     # Without --api-key, has_auth depends on env vars (and we just removed
     # the relevant one), so the storage is genuinely empty.
     assert storage.has_auth("openai") is False
+
+
+# ---------------------------------------------------------------------------
+# --base-url / --api parsing + custom model construction (the path used by
+# `nu-pods agent` to route at a deployed vLLM endpoint)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_base_url_and_api() -> None:
+    args = _ok(
+        [
+            "--base-url",
+            "http://h:8001/v1",
+            "--api",
+            "openai-completions",
+            "--model",
+            "Qwen/Qwen3-Coder-30B",
+            "--api-key",
+            "k",
+            "hi",
+        ]
+    )
+    assert args.base_url == "http://h:8001/v1"
+    assert args.api == "openai-completions"
+    assert args.model == "Qwen/Qwen3-Coder-30B"
+    assert args.positional == ["hi"]
+
+
+def test_base_url_missing_value_errors() -> None:
+    _, exit_code = _parse_args(["nu", "--base-url"])
+    assert exit_code == 2
+
+
+def test_api_flag_missing_value_errors() -> None:
+    _, exit_code = _parse_args(["nu", "--api"])
+    assert exit_code == 2
+
+
+def test_resolve_model_with_base_url_builds_custom_model() -> None:
+    args = _faux_args(
+        base_url="http://pod.example:8001/v1",
+        api="openai-completions",
+        model="Qwen/Qwen3-Coder-30B",
+    )
+    model = _resolve_model(args)
+    assert model is not None
+    assert model.base_url == "http://pod.example:8001/v1"
+    assert model.api == "openai-completions"
+    assert model.id == "Qwen/Qwen3-Coder-30B"
+    assert model.provider == "openai"
+
+
+def test_resolve_model_with_base_url_no_model_returns_none() -> None:
+    args = _faux_args(base_url="http://pod.example:8001/v1")
+    assert _resolve_model(args) is None
+
+
+def test_resolve_model_with_base_url_defaults_to_openai_completions_api() -> None:
+    args = _faux_args(base_url="http://pod.example:8001/v1", model="m")
+    model = _resolve_model(args)
+    assert model is not None
+    assert model.api == "openai-completions"
 
 
 # ---------------------------------------------------------------------------

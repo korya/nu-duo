@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 readme = "README.md"
 license = { text = "MIT" }
 
-dependencies = []
+dependencies = ["nu-coding-agent"]
 
 [project.scripts]
 nu-pods = "nu_pods.cli:main"
