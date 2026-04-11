@@ -18,6 +18,19 @@ from nu_coding_agent.core.tools.ls import create_ls_tool
 from nu_coding_agent.core.tools.read import create_read_tool
 from nu_coding_agent.core.tools.write import create_write_tool
 
+# Mirror the upstream ``allTools`` registry. Key order matches the
+# default-builder above so ``--tools read,write,edit,bash`` reflects the
+# documented "four core tools" emphasis.
+ALL_TOOL_NAMES: tuple[str, ...] = (
+    "read",
+    "write",
+    "edit",
+    "bash",
+    "ls",
+    "find",
+    "grep",
+)
+
 if TYPE_CHECKING:
     from typing import Any
 
@@ -43,6 +56,7 @@ def create_all_tools(cwd: str) -> list[AgentTool[Any, Any]]:
 
 
 __all__ = [
+    "ALL_TOOL_NAMES",
     "create_all_tools",
     "create_bash_tool",
     "create_edit_tool",
