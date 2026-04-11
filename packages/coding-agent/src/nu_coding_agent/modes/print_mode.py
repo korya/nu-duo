@@ -1,19 +1,18 @@
 """Print mode (single-shot) — port of ``packages/coding-agent/src/modes/print-mode.ts``.
 
-Sends a sequence of prompts to the agent and prints the result. Two
-output modes:
+Sends a sequence of prompts to an :class:`AgentSession` and prints the
+result. Two output modes:
 
 * ``"text"`` — only the final assistant text content
 * ``"json"`` — every :class:`AgentEvent` as a JSON line on stdout
 
-The upstream version goes through ``AgentSessionRuntime`` which exposes
-the full extension lifecycle (``newSession``, ``fork``, ``navigateTree``,
-``switchSession``, ``reload``). The Python port doesn't have those yet
-(they live in :mod:`nu_coding_agent.core.agent_session`, still pending),
-so this module operates directly on a :class:`nu_agent_core.agent.Agent`
-instance plus a callable that pumps the prompts. When the runtime port
-lands, swap the ``send_prompts`` callback for a runtime adapter without
-changing the rest of the surface.
+The upstream version goes through ``AgentSessionRuntime``, which adds
+``newSession`` / ``fork`` / ``navigateTree`` / ``switchSession`` /
+``reload`` plumbing the Python port hasn't reached yet. The simplified
+:class:`nu_coding_agent.core.agent_session.AgentSession` is sufficient
+for the print-mode contract — it owns session persistence and
+credential validation, and it's stable enough to swap underneath
+``run_print_mode`` once the runtime layer lands.
 """
 
 from __future__ import annotations
@@ -26,10 +25,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from nu_ai.types import AssistantMessage, ImageContent, TextContent
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from nu_agent_core.agent import Agent
     from nu_agent_core.types import AgentEvent
+
+    from nu_coding_agent.core.agent_session import AgentSession
 
 
 type PrintMode = Literal["text", "json"]
@@ -43,9 +41,6 @@ class PrintModeOptions:
     initial_message: str | None = None
     initial_images: list[ImageContent] = field(default_factory=list)
     messages: list[str] = field(default_factory=list)
-
-
-type SendPrompt = Callable[[str, list[ImageContent] | None], Awaitable[None]]
 
 
 def _write(line: str) -> None:
@@ -72,9 +67,9 @@ def _format_event_for_json(event: Any) -> str:
     return json.dumps(_coerce(event), default=str)
 
 
-def _print_text_result(agent: Agent) -> int:
+def _print_text_result(session: AgentSession) -> int:
     """Render the final assistant message in ``text`` mode and return an exit code."""
-    state = agent.state
+    state = session.agent.state
     if not state.messages:
         return 0
     last = state.messages[-1]
@@ -91,38 +86,37 @@ def _print_text_result(agent: Agent) -> int:
 
 
 async def run_print_mode(
-    agent: Agent,
-    send_prompt: SendPrompt,
+    session: AgentSession,
     options: PrintModeOptions,
 ) -> int:
-    """Drive ``agent`` through the supplied prompts and print the result.
+    """Drive ``session`` through the supplied prompts and print the result.
 
-    ``send_prompt(text, images)`` is the indirection that lets callers
-    plug a session manager (or the eventual ``AgentSessionRuntime``)
-    between this function and the agent. It must:
-
-    * append the user message,
-    * call ``agent.prompt(...)``,
-    * await the turn to completion (so we can read the final state).
+    ``session`` is an :class:`AgentSession` — it already wires up
+    credential validation, session-file persistence, and event
+    forwarding to subscribers. We just need to push prompts and
+    render the output.
     """
     exit_code = 0
     unsubscribe = None
     try:
         if options.mode == "json":
 
-            async def emit(event: AgentEvent, _signal: Any) -> None:
+            def emit(event: AgentEvent) -> None:
                 _write(_format_event_for_json(event) + "\n")
 
-            unsubscribe = agent.subscribe(emit)
+            unsubscribe = session.subscribe(emit)
 
         if options.initial_message is not None:
-            await send_prompt(options.initial_message, options.initial_images or None)
+            await session.prompt(
+                options.initial_message,
+                images=options.initial_images or None,
+            )
 
         for message in options.messages:
-            await send_prompt(message, None)
+            await session.prompt(message)
 
         if options.mode == "text":
-            exit_code = _print_text_result(agent)
+            exit_code = _print_text_result(session)
 
         return exit_code
     except Exception as exc:
@@ -137,6 +131,5 @@ async def run_print_mode(
 __all__ = [
     "PrintMode",
     "PrintModeOptions",
-    "SendPrompt",
     "run_print_mode",
 ]
