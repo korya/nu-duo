@@ -1,5 +1,16 @@
 """Compaction sub-package — direct port of ``packages/coding-agent/src/core/compaction``."""
 
+from nu_coding_agent.core.compaction.branch_summarization import (
+    BranchPreparation,
+    BranchSummaryDetails,
+    BranchSummaryResult,
+    CollectEntriesResult,
+    GenerateBranchSummaryOptions,
+    ReadOnlySessionSource,
+    collect_entries_for_branch_summary,
+    generate_branch_summary,
+    prepare_branch_entries,
+)
 from nu_coding_agent.core.compaction.compaction import (
     DEFAULT_COMPACTION_SETTINGS,
     CompactionDetails,
@@ -32,6 +43,10 @@ from nu_coding_agent.core.compaction.utils import (
 __all__ = [
     "DEFAULT_COMPACTION_SETTINGS",
     "SUMMARIZATION_SYSTEM_PROMPT",
+    "BranchPreparation",
+    "BranchSummaryDetails",
+    "BranchSummaryResult",
+    "CollectEntriesResult",
     "CompactionDetails",
     "CompactionPreparation",
     "CompactionResult",
@@ -39,7 +54,10 @@ __all__ = [
     "ContextUsageEstimate",
     "CutPointResult",
     "FileOperations",
+    "GenerateBranchSummaryOptions",
+    "ReadOnlySessionSource",
     "calculate_context_tokens",
+    "collect_entries_for_branch_summary",
     "compact",
     "compute_file_lists",
     "create_file_ops",
@@ -49,8 +67,10 @@ __all__ = [
     "find_cut_point",
     "find_turn_start_index",
     "format_file_operations",
+    "generate_branch_summary",
     "generate_summary",
     "get_last_assistant_usage",
+    "prepare_branch_entries",
     "prepare_compaction",
     "serialize_conversation",
     "should_compact",
