@@ -24,6 +24,15 @@ Type messages at the ``[N] you >`` prompt. Type ``/quit``, ``/exit``,
 ``/q``, ``Ctrl-D``, or ``Ctrl-C`` to exit. ``Ctrl-C`` mid-turn aborts
 the current request without exiting.
 
+Switch models on the fly with ``/model <provider>/<id>``, e.g.
+``/model openai/gpt-4o`` or ``/model anthropic/claude-sonnet-4-5``.
+Only models present in the bundled :mod:`nu_ai` catalog under the
+``openai`` or ``anthropic`` provider are accepted; the corresponding
+``OPENAI_API_KEY`` / ``ANTHROPIC_API_KEY`` must be set when switching
+to a provider you weren't already using. Type ``/model`` with no
+argument to print the current model and a sorted list of every
+available ``provider/id``.
+
 API keys are loaded from a top-level ``.env`` file via :mod:`dotenv`.
 Recognized variables:
 
@@ -58,6 +67,7 @@ from nu_ai import (
     get_env_api_key,
     get_model,
 )
+from nu_ai.models import get_models
 from nu_coding_agent.core.tools.bash import create_bash_tool
 from nu_coding_agent.core.tools.edit import create_edit_tool
 from nu_coding_agent.core.tools.read import create_read_tool
@@ -106,6 +116,66 @@ def _build_openai_model(model_id: str) -> Model:
 
 def _build_anthropic_model(model_id: str) -> Model | None:
     return get_model("anthropic", model_id)
+
+
+# ---------------------------------------------------------------------------
+# /model <provider>/<id> resolver
+# ---------------------------------------------------------------------------
+
+
+_SUPPORTED_PROVIDERS = ("openai", "anthropic")
+
+
+def _list_supported_models() -> list[str]:
+    """Return ``provider/id`` strings for every supported model in the catalog."""
+    out: list[str] = []
+    for provider in _SUPPORTED_PROVIDERS:
+        for model in get_models(provider):  # type: ignore[arg-type]
+            out.append(f"{model.provider}/{model.id}")
+    return sorted(out)
+
+
+def _resolve_model_command(arg: str) -> tuple[Model | None, str | None]:
+    """Validate ``/model <arg>`` and return ``(model, error_message)``.
+
+    Accepts ``provider/id`` only — bare ids would be ambiguous now that
+    both OpenAI and Anthropic ship models with similar id shapes.
+    Returns ``(None, error)`` on validation failure or missing API key.
+    """
+    cleaned = arg.strip()
+    if not cleaned:
+        return None, "usage: /model <provider>/<id> (e.g. openai/gpt-4o)"
+
+    if "/" not in cleaned:
+        return None, (
+            f'invalid model spec "{cleaned}". '
+            "Use <provider>/<id> form, e.g. openai/gpt-4o or anthropic/claude-haiku-4-5."
+        )
+
+    provider, model_id = cleaned.split("/", 1)
+    provider = provider.strip().lower()
+    model_id = model_id.strip()
+    if not provider or not model_id:
+        return None, "usage: /model <provider>/<id>"
+
+    if provider not in _SUPPORTED_PROVIDERS:
+        return None, (f'unknown provider "{provider}". Supported: {", ".join(_SUPPORTED_PROVIDERS)}.')
+
+    catalog = get_model(provider, model_id)
+    if catalog is None:
+        return None, (
+            f'unknown model "{provider}/{model_id}". Not in the bundled nu_ai catalog for provider {provider}.'
+        )
+
+    if get_env_api_key(provider) is None:
+        env_var = "OPENAI_API_KEY" if provider == "openai" else "ANTHROPIC_API_KEY"
+        return None, (
+            f"cannot switch to {provider}: {env_var} is not set in the environment (or in the workspace .env file)."
+        )
+
+    if provider == "openai":
+        return _build_openai_model(model_id), None
+    return _build_anthropic_model(model_id), None
 
 
 # ---------------------------------------------------------------------------
@@ -255,10 +325,12 @@ async def _main() -> int:
         return 2
 
     print(f"\033[2m[provider]\033[0m {parsed.provider}")
-    print(f"\033[2m[model]   \033[0m {model.id}")
+    print(f"\033[2m[model]   \033[0m {model.provider}/{model.id}")
     print(f"\033[2m[cwd]     \033[0m {repo}")
     print(
-        "\033[2m[hint]    \033[0m type a message; /quit, /exit, Ctrl-D, or Ctrl-C to exit\n",
+        "\033[2m[hint]    \033[0m type a message; "
+        "/model <provider>/<id> to switch model; "
+        "/quit, /exit, Ctrl-D, or Ctrl-C to exit\n",
         flush=True,
     )
 
@@ -309,6 +381,35 @@ async def _main() -> int:
             continue
         if prompt in _EXIT_COMMANDS:
             return 0
+
+        if prompt == "/model" or prompt.startswith("/model "):
+            arg = prompt[len("/model") :].strip()
+            if not arg:
+                current = agent.state.model
+                print(
+                    f"\033[2m[model]   \033[0m current: {current.provider}/{current.id}",
+                    flush=True,
+                )
+                print("\033[2m[model]   \033[0m available:", flush=True)
+                for entry in _list_supported_models():
+                    marker = "*" if entry == f"{current.provider}/{current.id}" else " "
+                    print(f"  {marker} {entry}", flush=True)
+                print(
+                    "\033[2m[model]   \033[0m usage: /model <provider>/<id>",
+                    flush=True,
+                )
+                continue
+            new_model, error = _resolve_model_command(arg)
+            if error is not None:
+                print(f"\033[31m[error]\033[0m {error}", file=sys.stderr)
+                continue
+            assert new_model is not None
+            agent.state.model = new_model
+            print(
+                f"\033[2m[model]   \033[0m switched to {new_model.provider}/{new_model.id}",
+                flush=True,
+            )
+            continue
 
         state.reset()
         try:
