@@ -28,3 +28,11 @@ test-cov:
 #        just run-sample --anthropic "your prompt here" /path/to/repo
 run-sample *ARGS:
     uv run python examples/sample.py "$@"
+
+# Run the `nu` CLI through uv (uses .env for API keys).
+# Usage: just nu --help
+#        just nu "what is 2+2"
+#        just nu -q "give me the answer only"
+#        just nu --anthropic "explain the agent loop"
+nu *ARGS:
+    uv run nu "$@"
