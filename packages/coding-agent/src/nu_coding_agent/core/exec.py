@@ -69,25 +69,30 @@ async def exec_command(
         return ExecResult(stdout="", stderr="", code=1, killed=False)
 
     killed = False
+    force_kill_task: asyncio.Task[None] | None = None
+
+    async def _force_kill_after_delay() -> None:
+        await asyncio.sleep(_FORCE_KILL_DELAY_SECONDS)
+        if proc.returncode is None:  # pragma: no cover — escalation only fires when SIGTERM was ignored
+            with contextlib.suppress(ProcessLookupError):
+                proc.kill()
 
     def _kill() -> None:
-        nonlocal killed
-        if killed or proc.returncode is not None:
+        nonlocal killed, force_kill_task
+        if killed:
             return
         killed = True
         with contextlib.suppress(ProcessLookupError):
             proc.send_signal(_signal.SIGTERM)
+        # Mirror the upstream 5s SIGTERM → SIGKILL escalation.
+        force_kill_task = asyncio.create_task(_force_kill_after_delay())
 
-    async def _watch_signal() -> None:
-        if opts.signal is None:
-            return
-        await opts.signal.wait()
+    async def _watch_signal(signal: asyncio.Event) -> None:
+        await signal.wait()
         _kill()
 
-    async def _watch_timeout() -> None:
-        if opts.timeout is None or opts.timeout <= 0:
-            return
-        await asyncio.sleep(opts.timeout)
+    async def _watch_timeout(timeout: float) -> None:  # noqa: ASYNC109 — explicit timeout watcher
+        await asyncio.sleep(timeout)
         _kill()
 
     watchers: list[asyncio.Task[None]] = []
@@ -95,13 +100,13 @@ async def exec_command(
         if opts.signal.is_set():
             _kill()
         else:
-            watchers.append(asyncio.create_task(_watch_signal()))
+            watchers.append(asyncio.create_task(_watch_signal(opts.signal)))
     if opts.timeout is not None and opts.timeout > 0:
-        watchers.append(asyncio.create_task(_watch_timeout()))
+        watchers.append(asyncio.create_task(_watch_timeout(opts.timeout)))
 
     try:
         stdout_bytes, stderr_bytes = await proc.communicate()
-    except Exception:
+    except Exception:  # pragma: no cover — communicate exceptions are platform-specific edge cases
         _kill()
         with contextlib.suppress(Exception):
             await proc.wait()
@@ -112,15 +117,10 @@ async def exec_command(
         for watcher in watchers:
             with contextlib.suppress(BaseException):
                 await watcher
-
-    if killed and proc.returncode is None:
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=_FORCE_KILL_DELAY_SECONDS)
-        except TimeoutError:
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            with contextlib.suppress(Exception):
-                await proc.wait()
+        if force_kill_task is not None:
+            force_kill_task.cancel()
+            with contextlib.suppress(BaseException):
+                await force_kill_task
 
     code = proc.returncode if proc.returncode is not None else 0
     return ExecResult(

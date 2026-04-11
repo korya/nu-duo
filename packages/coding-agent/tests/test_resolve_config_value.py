@@ -81,3 +81,29 @@ def test_resolve_headers_resolves_each_value(monkeypatch: pytest.MonkeyPatch) ->
 def test_resolve_headers_or_throw_propagates_failure() -> None:
     with pytest.raises(ValueError, match='header "Authorization"'):
         resolve_headers_or_throw({"Authorization": "!exit 1"}, "anthropic")
+
+
+def test_resolve_headers_or_throw_none() -> None:
+    assert resolve_headers_or_throw(None, "anthropic") is None
+    assert resolve_headers_or_throw({}, "anthropic") is None
+
+
+def test_resolve_headers_or_throw_resolves_each_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NU_TEST_HDR", "abc")
+    out = resolve_headers_or_throw({"X": "NU_TEST_HDR", "Y": "literal"}, "test")
+    assert out == {"X": "abc", "Y": "literal"}
+
+
+def test_resolve_uncached_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NU_TEST_UNCACHED", "value")
+    assert resolve_config_value_uncached("NU_TEST_UNCACHED") == "value"
+
+
+def test_resolve_uncached_literal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NU_TEST_LITERAL2", raising=False)
+    assert resolve_config_value_uncached("NU_TEST_LITERAL2") == "NU_TEST_LITERAL2"
+
+
+def test_resolve_or_throw_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NU_TEST_OK", "ok")
+    assert resolve_config_value_or_throw("NU_TEST_OK", "test") == "ok"

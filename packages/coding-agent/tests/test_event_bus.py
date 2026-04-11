@@ -75,3 +75,32 @@ async def test_async_handler_runs() -> None:
     for _ in range(5):
         await asyncio.sleep(0)
     assert received == ["x"]
+
+
+@pytest.mark.asyncio
+async def test_async_handler_exception_logged(capsys: pytest.CaptureFixture[str]) -> None:
+    bus = create_event_bus()
+
+    async def boom(_data: object) -> None:
+        raise RuntimeError("async kaboom")
+
+    bus.on("ch", boom)
+    bus.emit("ch", 1)
+    for _ in range(5):
+        await asyncio.sleep(0)
+    captured = capsys.readouterr()
+    assert "async kaboom" in captured.err or "Event handler error" in captured.err
+
+
+def test_unsubscribe_after_handler_removed_elsewhere() -> None:
+    # Hits the ValueError branch in unsubscribe — we manually wipe the
+    # handler list before calling the returned unsubscribe callback.
+    bus = create_event_bus()
+
+    def handler(_data: object) -> None:
+        return
+
+    unsub = bus.on("ch", handler)
+    bus.clear()  # drops the channel entirely
+    bus.on("ch", lambda _d: None)  # re-add a *different* handler
+    unsub()  # the original handler is no longer in the list — must not raise

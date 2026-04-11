@@ -43,7 +43,9 @@ def resolve_config_value_or_throw(config: str, description: str) -> str:
         return resolved
     if config.startswith("!"):
         raise ValueError(f"Failed to resolve {description} from shell command: {config[1:]}")
-    raise ValueError(f"Failed to resolve {description}")
+    # Unreachable: ``resolve_config_value_uncached`` returns the literal
+    # ``config`` when the env var is unset, never ``None``.
+    raise ValueError(f"Failed to resolve {description}")  # pragma: no cover
 
 
 def resolve_headers(headers: dict[str, str] | None) -> dict[str, str] | None:
@@ -87,7 +89,7 @@ def _execute_command_uncached(command_config: str) -> str | None:
             timeout=_COMMAND_TIMEOUT_SECONDS,
             check=False,
         )
-    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):  # pragma: no cover — platform/timeout edge
         return None
     if result.returncode != 0:
         return None

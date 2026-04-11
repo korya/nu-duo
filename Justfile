@@ -15,12 +15,14 @@ lint:
 test:
     uv run pytest
 
-# Run pytest with per-package and total coverage reporting
+# Run pytest with per-package and total coverage reporting.
+# Library code (everything under packages/*/src) must stay above 90 %.
 test-cov:
     uv run pytest \
         --cov=nu_ai --cov=nu_agent_core --cov=nu_tui \
         --cov=nu_coding_agent --cov=nu_mom --cov=nu_pods --cov=nu_web_ui \
-        --cov-report=term-missing
+        --cov-report=term-missing \
+        --cov-fail-under=90
 
 # Run the end-to-end sample app (uses .env for API keys).
 # Usage: just run-sample

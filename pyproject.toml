@@ -140,6 +140,9 @@ omit = [
     "*/tests/*",
     "*/models_generated.py",
     "*/resources/*",
+    # CLI entry point — thin glue around the library, integration-tested
+    # via the sample app rather than unit-tested.
+    "*/nu_coding_agent/cli.py",
 ]
 disable_warnings = ["module-not-imported", "no-data-collected"]
 

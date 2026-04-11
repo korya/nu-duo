@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from nu_ai.types import TextContent
-from nu_coding_agent.core.tools.read import create_read_tool
+from nu_ai.types import ImageContent, TextContent
+from nu_coding_agent.core.tools.read import ReadOperations, create_read_tool
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -103,3 +103,31 @@ class TestReadTruncation:
         assert isinstance(result.content[0], TextContent)
         text = result.content[0].text
         assert "Use offset=" in text
+
+    async def test_first_line_exceeds_byte_limit(self, tmp_path: Path) -> None:
+        # Single huge line — must trigger the "exceeds limit" branch.
+        f = tmp_path / "huge_line.txt"
+        f.write_text("x" * 1_000_000)
+        tool = create_read_tool(str(tmp_path))
+        result = await tool.execute("c1", _params("huge_line.txt"))
+        assert isinstance(result.content[0], TextContent)
+        assert "exceeds" in result.content[0].text
+
+
+class TestReadImage:
+    async def test_image_branch_returns_image_content(self, tmp_path: Path) -> None:
+        f = tmp_path / "fake.png"
+        f.write_bytes(b"\x89PNG\r\nfakebody")
+
+        async def detect(_path: str) -> str | None:
+            return "image/png"
+
+        tool = create_read_tool(
+            str(tmp_path),
+            operations=ReadOperations(detect_image_mime_type=detect),
+        )
+        result = await tool.execute("c1", _params("fake.png"))
+        assert isinstance(result.content[0], TextContent)
+        assert "image" in result.content[0].text.lower()
+        assert isinstance(result.content[1], ImageContent)
+        assert result.content[1].mime_type == "image/png"

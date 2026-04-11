@@ -15,6 +15,8 @@ from nu_coding_agent.core.prompt_templates import (
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 
 # ---------------------------------------------------------------------------
 # parse_command_args
@@ -195,3 +197,124 @@ def test_expand_prompt_template_no_match() -> None:
 
 def test_expand_prompt_template_non_slash_passes_through() -> None:
     assert expand_prompt_template("just text", []) == "just text"
+
+
+def test_load_template_skips_non_md(tmp_path: Path) -> None:
+    prompts = tmp_path / "p"
+    prompts.mkdir()
+    (prompts / "ignored.txt").write_text("not markdown")
+    (prompts / "real.md").write_text("hi")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=[str(prompts)],
+            include_defaults=False,
+        )
+    )
+    names = {t.name for t in templates}
+    assert names == {"real"}
+
+
+def test_load_template_handles_directory_in_prompt_paths(tmp_path: Path) -> None:
+    inner = tmp_path / "inner"
+    inner.mkdir()
+    (inner / "x.md").write_text("hi")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=[str(inner)],
+            include_defaults=False,
+        )
+    )
+    assert len(templates) == 1
+
+
+def test_load_template_skips_non_md_explicit_path(tmp_path: Path) -> None:
+    file = tmp_path / "x.txt"
+    file.write_text("hi")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=[str(file)],
+            include_defaults=False,
+        )
+    )
+    assert templates == []
+
+
+def test_description_skips_blank_first_lines(tmp_path: Path) -> None:
+    prompts = tmp_path / "p"
+    prompts.mkdir()
+    (prompts / "x.md").write_text("\n\n  \nactual content here\n")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=[str(prompts)],
+            include_defaults=False,
+        )
+    )
+    assert templates[0].description == "actual content here"
+
+
+def test_description_with_non_string_frontmatter(tmp_path: Path) -> None:
+    prompts = tmp_path / "p"
+    prompts.mkdir()
+    (prompts / "x.md").write_text("---\ndescription: 123\n---\nfallback line\n")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=[str(prompts)],
+            include_defaults=False,
+        )
+    )
+    # Non-string frontmatter description falls through to first body line.
+    assert templates[0].description == "fallback line"
+
+
+def test_load_with_explicit_tilde_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    home = tmp_path / "templates"
+    home.mkdir()
+    (home / "h.md").write_text("hello")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=["~/templates"],
+            include_defaults=False,
+        )
+    )
+    assert {t.name for t in templates} == {"h"}
+
+
+def test_load_with_bare_tilde_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "h.md").write_text("hi")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=["~"],
+            include_defaults=False,
+        )
+    )
+    assert {t.name for t in templates} == {"h"}
+
+
+def test_load_with_tilde_no_slash_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "x.md").write_text("hi")
+    templates = load_prompt_templates(
+        LoadPromptTemplatesOptions(
+            cwd=str(tmp_path),
+            prompt_paths=["~sub"],
+            include_defaults=False,
+        )
+    )
+    assert {t.name for t in templates} == {"x"}
+
+
+def test_default_options() -> None:
+    # Calling with no options should not crash; returns a list (possibly empty).
+    templates = load_prompt_templates()
+    assert isinstance(templates, list)

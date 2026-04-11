@@ -580,6 +580,28 @@ class TestAgentLoopContinue:
                 ),
             )
 
+    async def test_continue_streams_via_event_stream(self) -> None:
+        registration = register_faux_provider()
+        try:
+            registration.set_responses([faux_assistant_message("answer")])
+            ctx = AgentContext(messages=[UserMessage(content="ping", timestamp=1)])
+            stream = agent_loop_continue(
+                context=ctx,
+                config=AgentLoopConfig(
+                    model=registration.get_model(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                stream_fn=_make_stream_fn(registration.api),
+            )
+            events: list[AgentEvent] = []
+            async for event in stream:
+                events.append(event)
+            assert len(events) > 0
+            messages = await stream.result()
+            assert any(isinstance(m, AssistantMessage) for m in messages)
+        finally:
+            registration.unregister()
+
     async def test_continue_rejects_assistant_last_context(self) -> None:
         msg = AssistantMessage(
             content=[TextContent(text="prior")],

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from nu_ai.types import ImageContent, TextContent, UserMessage
 from nu_coding_agent.core.messages import (
     BRANCH_SUMMARY_PREFIX,
@@ -135,6 +137,21 @@ def test_convert_to_llm_branch_summary_wraps_text() -> None:
     assert text.startswith(BRANCH_SUMMARY_PREFIX)
     assert text.endswith(BRANCH_SUMMARY_SUFFIX)
     assert "S" in text
+
+
+@dataclass
+class _BogusMessage:
+    role: str = "totally_made_up"
+
+
+def test_convert_to_llm_drops_unknown_role() -> None:
+    out = convert_to_llm([_BogusMessage()])
+    assert out == []
+
+
+def test_convert_to_llm_drops_message_without_role() -> None:
+    out = convert_to_llm([object()])
+    assert out == []
 
 
 def test_convert_to_llm_compaction_summary_wraps_text() -> None:
