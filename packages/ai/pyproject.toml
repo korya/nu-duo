@@ -1,5 +1,5 @@
 [project]
-name = "pi-ai"
+name = "nu-ai"
 version = "0.0.0"
 description = "Unified multi-provider LLM streaming — Python port of @mariozechner/pi-ai"
 requires-python = ">=3.13"
@@ -25,4 +25,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/pi_ai"]
+packages = ["src/nu_ai"]

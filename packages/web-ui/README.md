@@ -1,4 +1,4 @@
-# pi-web-ui
+# nu-web-ui
 
 Python port of [`@mariozechner/pi-web-ui`](https://github.com/badlogic/pi-mono/tree/main/packages/web-ui) — browser chat UI.
 

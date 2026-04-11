@@ -1,4 +1,4 @@
-"""Tests for pi_ai.models.
+"""Tests for nu_ai.models.
 
 Ported from the documented contract in ``packages/ai/src/models.ts``. The
 upstream has no dedicated models test file; these cover the five exported
@@ -8,7 +8,7 @@ helpers plus the integrity of ``models_generated``.
 from __future__ import annotations
 
 import pytest
-from pi_ai.models import (
+from nu_ai.models import (
     MODELS,
     calculate_cost,
     get_model,
@@ -17,7 +17,7 @@ from pi_ai.models import (
     models_are_equal,
     supports_xhigh,
 )
-from pi_ai.types import Cost, Model, ModelCost, Usage
+from nu_ai.types import Cost, Model, ModelCost, Usage
 
 
 def _mk_model(model_id: str = "x", provider: str = "anthropic", cost: ModelCost | None = None) -> Model:

@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.simple_options.
+"""Tests for nu_ai.providers.simple_options.
 
 Port of the documented contract in ``packages/ai/src/providers/simple-options.ts``.
 """
@@ -6,12 +6,12 @@ Port of the documented contract in ``packages/ai/src/providers/simple-options.ts
 from __future__ import annotations
 
 import pytest
-from pi_ai.providers.simple_options import (
+from nu_ai.providers.simple_options import (
     adjust_max_tokens_for_thinking,
     build_base_options,
     clamp_reasoning,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     Model,
     ModelCost,
     SimpleStreamOptions,

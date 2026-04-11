@@ -1,4 +1,4 @@
-"""Tests for pi_tui.keybindings.
+"""Tests for nu_tui.keybindings.
 
 Ports the documented contract from
 ``packages/tui/src/keybindings.ts``: definitions, user overrides,
@@ -8,7 +8,7 @@ singleton.
 
 from __future__ import annotations
 
-from pi_tui.keybindings import (
+from nu_tui.keybindings import (
     TUI_KEYBINDINGS,
     KeybindingDefinition,
     KeybindingsManager,

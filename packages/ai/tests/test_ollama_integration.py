@@ -2,16 +2,16 @@
 
 Ollama exposes an OpenAI-compatible chat completions endpoint at
 ``/v1/chat/completions``. Upstream pi-mono has no dedicated ``ollama.ts``
-provider — Ollama is just a :class:`pi_ai.types.Model` whose ``api`` is
+provider — Ollama is just a :class:`nu_ai.types.Model` whose ``api`` is
 ``"openai-completions"`` and whose ``base_url`` points at the local server.
 
-This test exercises the full top-level :func:`pi_ai.stream` dispatch path:
+This test exercises the full top-level :func:`nu_ai.stream` dispatch path:
 
 1. Build an Ollama model definition.
 2. Hand a fake ``AsyncOpenAI``-shaped client into the registered provider
    via the ``client=`` injection point.
 3. Verify the streamed events reach the caller through the global
-   :func:`pi_ai.stream` API.
+   :func:`nu_ai.stream` API.
 
 No network calls are made.
 """
@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from pi_ai import (
+from nu_ai import (
     Context,
     DoneEvent,
     Model,
@@ -31,8 +31,8 @@ from pi_ai import (
     TextContent,
     UserMessage,
 )
-from pi_ai.api_registry import get_api_provider
-from pi_ai.providers.openai_completions import stream_openai_completions
+from nu_ai.api_registry import get_api_provider
+from nu_ai.providers.openai_completions import stream_openai_completions
 
 
 def _ns(**fields: Any) -> SimpleNamespace:
@@ -136,7 +136,7 @@ class TestOllamaThroughOpenAICompletionsApi:
         ]
         fake = _FakeAsyncOpenAI(chunks)
 
-        # We bypass the top-level :func:`pi_ai.stream` only because we need
+        # We bypass the top-level :func:`nu_ai.stream` only because we need
         # to inject the fake client. The dispatch logic is the same:
         # ``stream`` looks up the provider by ``model.api`` and delegates.
         provider = get_api_provider("openai-completions")

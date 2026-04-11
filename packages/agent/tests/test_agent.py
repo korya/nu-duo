@@ -1,4 +1,4 @@
-"""Tests for pi_agent_core.agent.Agent.
+"""Tests for nu_agent_core.agent.Agent.
 
 Covers the documented contracts in ``packages/agent/src/agent.ts``:
 
@@ -23,15 +23,15 @@ import asyncio
 from typing import Any
 
 import pytest
-from pi_agent_core.agent import Agent, AgentOptions
-from pi_agent_core.types import AgentEvent, AgentTool, AgentToolResult
-from pi_ai.api_registry import get_api_provider
-from pi_ai.providers.faux import (
+from nu_agent_core.agent import Agent, AgentOptions
+from nu_agent_core.types import AgentEvent, AgentTool, AgentToolResult
+from nu_ai.api_registry import get_api_provider
+from nu_ai.providers.faux import (
     faux_assistant_message,
     faux_tool_call,
     register_faux_provider,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Cost,
     ImageContent,

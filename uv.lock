@@ -4,14 +4,14 @@ requires-python = ">=3.13"
 
 [manifest]
 members = [
-    "pi-agent-core",
-    "pi-ai",
-    "pi-coding-agent",
-    "pi-mom",
-    "pi-monorepo",
-    "pi-pods",
-    "pi-tui",
-    "pi-web-ui",
+    "nu-agent-core",
+    "nu-ai",
+    "nu-coding-agent",
+    "nu-duo",
+    "nu-mom",
+    "nu-pods",
+    "nu-tui",
+    "nu-web-ui",
 ]
 
 [[package]]
@@ -781,6 +781,244 @@ wheels = [
 ]
 
 [[package]]
+name = "nu-agent-core"
+version = "0.0.0"
+source = { editable = "packages/agent" }
+dependencies = [
+    { name = "anyio" },
+    { name = "nu-ai" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.7.0" },
+    { name = "nu-ai", editable = "packages/ai" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+]
+
+[[package]]
+name = "nu-ai"
+version = "0.0.0"
+source = { editable = "packages/ai" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "anyio" },
+    { name = "boto3" },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "jsonschema" },
+    { name = "mistralai" },
+    { name = "openai" },
+    { name = "partial-json-parser" },
+    { name = "pydantic" },
+    { name = "typing-extensions" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anthropic", specifier = ">=0.73.0" },
+    { name = "anyio", specifier = ">=4.7.0" },
+    { name = "boto3", specifier = ">=1.35.0" },
+    { name = "google-genai", specifier = ">=1.0.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
+    { name = "jsonschema", specifier = ">=4.23.0" },
+    { name = "mistralai", specifier = ">=1.0.0" },
+    { name = "openai", specifier = ">=1.100.0" },
+    { name = "partial-json-parser", specifier = ">=0.2.1" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "typing-extensions", specifier = ">=4.12.0" },
+]
+
+[[package]]
+name = "nu-coding-agent"
+version = "0.0.0"
+source = { editable = "packages/coding-agent" }
+dependencies = [
+    { name = "anyio" },
+    { name = "chardet" },
+    { name = "filelock" },
+    { name = "nu-agent-core" },
+    { name = "nu-ai" },
+    { name = "nu-tui" },
+    { name = "pathspec" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pyperclip" },
+    { name = "python-frontmatter" },
+    { name = "pyyaml" },
+    { name = "tiktoken" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.7.0" },
+    { name = "chardet", specifier = ">=5.2.0" },
+    { name = "filelock", specifier = ">=3.16.0" },
+    { name = "nu-agent-core", editable = "packages/agent" },
+    { name = "nu-ai", editable = "packages/ai" },
+    { name = "nu-tui", editable = "packages/tui" },
+    { name = "pathspec", specifier = ">=0.12.0" },
+    { name = "pillow", specifier = ">=11.0.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pyperclip", specifier = ">=1.9.0" },
+    { name = "python-frontmatter", specifier = ">=1.1.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "tiktoken", specifier = ">=0.8.0" },
+    { name = "typer", specifier = ">=0.15.0" },
+]
+
+[[package]]
+name = "nu-duo"
+version = "0.0.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "nu-agent-core" },
+    { name = "nu-ai" },
+    { name = "nu-coding-agent" },
+    { name = "nu-mom" },
+    { name = "nu-pods" },
+    { name = "nu-tui" },
+    { name = "nu-web-ui" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "anyio" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-httpx" },
+    { name = "python-dotenv" },
+    { name = "ruff" },
+    { name = "syrupy" },
+    { name = "trio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "nu-agent-core", editable = "packages/agent" },
+    { name = "nu-ai", editable = "packages/ai" },
+    { name = "nu-coding-agent", editable = "packages/coding-agent" },
+    { name = "nu-mom", editable = "packages/mom" },
+    { name = "nu-pods", editable = "packages/pods" },
+    { name = "nu-tui", editable = "packages/tui" },
+    { name = "nu-web-ui", editable = "packages/web-ui" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "anyio", specifier = ">=4.7.0" },
+    { name = "pyright", specifier = ">=1.1.400" },
+    { name = "pytest", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", specifier = ">=0.24.0" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-httpx", specifier = ">=0.35.0" },
+    { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "ruff", specifier = ">=0.14.0" },
+    { name = "syrupy", specifier = ">=4.8.0" },
+    { name = "trio", specifier = ">=0.27.0" },
+]
+
+[[package]]
+name = "nu-mom"
+version = "0.0.0"
+source = { editable = "packages/mom" }
+dependencies = [
+    { name = "croniter" },
+    { name = "docker" },
+    { name = "nu-agent-core" },
+    { name = "nu-ai" },
+    { name = "nu-coding-agent" },
+    { name = "pydantic" },
+    { name = "slack-bolt" },
+    { name = "slack-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "croniter", specifier = ">=3.0.0" },
+    { name = "docker", specifier = ">=7.1.0" },
+    { name = "nu-agent-core", editable = "packages/agent" },
+    { name = "nu-ai", editable = "packages/ai" },
+    { name = "nu-coding-agent", editable = "packages/coding-agent" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "slack-bolt", specifier = ">=1.21.0" },
+    { name = "slack-sdk", specifier = ">=3.33.0" },
+]
+
+[[package]]
+name = "nu-pods"
+version = "0.0.0"
+source = { editable = "packages/pods" }
+dependencies = [
+    { name = "asyncssh" },
+    { name = "nu-agent-core" },
+    { name = "pydantic" },
+    { name = "rich" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncssh", specifier = ">=2.18.0" },
+    { name = "nu-agent-core", editable = "packages/agent" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "rich", specifier = ">=13.9.0" },
+    { name = "typer", specifier = ">=0.15.0" },
+]
+
+[[package]]
+name = "nu-tui"
+version = "0.0.0"
+source = { editable = "packages/tui" }
+dependencies = [
+    { name = "markdown-it-py" },
+    { name = "pillow" },
+    { name = "rich" },
+    { name = "textual" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "markdown-it-py", specifier = ">=3.0.0" },
+    { name = "pillow", specifier = ">=11.0.0" },
+    { name = "rich", specifier = ">=13.9.0" },
+    { name = "textual", specifier = ">=0.85.0" },
+]
+
+[[package]]
+name = "nu-web-ui"
+version = "0.0.0"
+source = { editable = "packages/web-ui" }
+dependencies = [
+    { name = "aiosqlite" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "nu-agent-core" },
+    { name = "nu-ai" },
+    { name = "pydantic" },
+    { name = "python-multipart" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "websockets" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.20.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.28.0" },
+    { name = "nu-agent-core", editable = "packages/agent" },
+    { name = "nu-ai", editable = "packages/ai" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "python-multipart", specifier = ">=0.0.17" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
+    { name = "websockets", specifier = ">=13.1" },
+]
+
+[[package]]
 name = "openai"
 version = "2.31.0"
 source = { registry = "https://pypi.org/simple" }
@@ -862,244 +1100,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fa/36/e27608899f9b8d4dff0617b2d9ab17ca5608956ca44461ac14ac48b44015/pathspec-1.0.4.tar.gz", hash = "sha256:0210e2ae8a21a9137c0d470578cb0e595af87edaa6ebf12ff176f14a02e0e645", size = 131200, upload-time = "2026-01-27T03:59:46.938Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/3c/2c197d226f9ea224a9ab8d197933f9da0ae0aac5b6e0f884e2b8d9c8e9f7/pathspec-1.0.4-py3-none-any.whl", hash = "sha256:fb6ae2fd4e7c921a165808a552060e722767cfa526f99ca5156ed2ce45a5c723", size = 55206, upload-time = "2026-01-27T03:59:45.137Z" },
-]
-
-[[package]]
-name = "pi-agent-core"
-version = "0.0.0"
-source = { editable = "packages/agent" }
-dependencies = [
-    { name = "anyio" },
-    { name = "pi-ai" },
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anyio", specifier = ">=4.7.0" },
-    { name = "pi-ai", editable = "packages/ai" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-]
-
-[[package]]
-name = "pi-ai"
-version = "0.0.0"
-source = { editable = "packages/ai" }
-dependencies = [
-    { name = "anthropic" },
-    { name = "anyio" },
-    { name = "boto3" },
-    { name = "google-genai" },
-    { name = "httpx" },
-    { name = "jsonschema" },
-    { name = "mistralai" },
-    { name = "openai" },
-    { name = "partial-json-parser" },
-    { name = "pydantic" },
-    { name = "typing-extensions" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anthropic", specifier = ">=0.73.0" },
-    { name = "anyio", specifier = ">=4.7.0" },
-    { name = "boto3", specifier = ">=1.35.0" },
-    { name = "google-genai", specifier = ">=1.0.0" },
-    { name = "httpx", specifier = ">=0.28.0" },
-    { name = "jsonschema", specifier = ">=4.23.0" },
-    { name = "mistralai", specifier = ">=1.0.0" },
-    { name = "openai", specifier = ">=1.100.0" },
-    { name = "partial-json-parser", specifier = ">=0.2.1" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "typing-extensions", specifier = ">=4.12.0" },
-]
-
-[[package]]
-name = "pi-coding-agent"
-version = "0.0.0"
-source = { editable = "packages/coding-agent" }
-dependencies = [
-    { name = "anyio" },
-    { name = "chardet" },
-    { name = "filelock" },
-    { name = "pathspec" },
-    { name = "pi-agent-core" },
-    { name = "pi-ai" },
-    { name = "pi-tui" },
-    { name = "pillow" },
-    { name = "pydantic" },
-    { name = "pyperclip" },
-    { name = "python-frontmatter" },
-    { name = "pyyaml" },
-    { name = "tiktoken" },
-    { name = "typer" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "anyio", specifier = ">=4.7.0" },
-    { name = "chardet", specifier = ">=5.2.0" },
-    { name = "filelock", specifier = ">=3.16.0" },
-    { name = "pathspec", specifier = ">=0.12.0" },
-    { name = "pi-agent-core", editable = "packages/agent" },
-    { name = "pi-ai", editable = "packages/ai" },
-    { name = "pi-tui", editable = "packages/tui" },
-    { name = "pillow", specifier = ">=11.0.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pyperclip", specifier = ">=1.9.0" },
-    { name = "python-frontmatter", specifier = ">=1.1.0" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
-    { name = "tiktoken", specifier = ">=0.8.0" },
-    { name = "typer", specifier = ">=0.15.0" },
-]
-
-[[package]]
-name = "pi-mom"
-version = "0.0.0"
-source = { editable = "packages/mom" }
-dependencies = [
-    { name = "croniter" },
-    { name = "docker" },
-    { name = "pi-agent-core" },
-    { name = "pi-ai" },
-    { name = "pi-coding-agent" },
-    { name = "pydantic" },
-    { name = "slack-bolt" },
-    { name = "slack-sdk" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "croniter", specifier = ">=3.0.0" },
-    { name = "docker", specifier = ">=7.1.0" },
-    { name = "pi-agent-core", editable = "packages/agent" },
-    { name = "pi-ai", editable = "packages/ai" },
-    { name = "pi-coding-agent", editable = "packages/coding-agent" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "slack-bolt", specifier = ">=1.21.0" },
-    { name = "slack-sdk", specifier = ">=3.33.0" },
-]
-
-[[package]]
-name = "pi-monorepo"
-version = "0.0.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "pi-agent-core" },
-    { name = "pi-ai" },
-    { name = "pi-coding-agent" },
-    { name = "pi-mom" },
-    { name = "pi-pods" },
-    { name = "pi-tui" },
-    { name = "pi-web-ui" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "anyio" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "pytest-httpx" },
-    { name = "python-dotenv" },
-    { name = "ruff" },
-    { name = "syrupy" },
-    { name = "trio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pi-agent-core", editable = "packages/agent" },
-    { name = "pi-ai", editable = "packages/ai" },
-    { name = "pi-coding-agent", editable = "packages/coding-agent" },
-    { name = "pi-mom", editable = "packages/mom" },
-    { name = "pi-pods", editable = "packages/pods" },
-    { name = "pi-tui", editable = "packages/tui" },
-    { name = "pi-web-ui", editable = "packages/web-ui" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "anyio", specifier = ">=4.7.0" },
-    { name = "pyright", specifier = ">=1.1.400" },
-    { name = "pytest", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24.0" },
-    { name = "pytest-cov", specifier = ">=6.0.0" },
-    { name = "pytest-httpx", specifier = ">=0.35.0" },
-    { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "ruff", specifier = ">=0.14.0" },
-    { name = "syrupy", specifier = ">=4.8.0" },
-    { name = "trio", specifier = ">=0.27.0" },
-]
-
-[[package]]
-name = "pi-pods"
-version = "0.0.0"
-source = { editable = "packages/pods" }
-dependencies = [
-    { name = "asyncssh" },
-    { name = "pi-agent-core" },
-    { name = "pydantic" },
-    { name = "rich" },
-    { name = "typer" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "asyncssh", specifier = ">=2.18.0" },
-    { name = "pi-agent-core", editable = "packages/agent" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "rich", specifier = ">=13.9.0" },
-    { name = "typer", specifier = ">=0.15.0" },
-]
-
-[[package]]
-name = "pi-tui"
-version = "0.0.0"
-source = { editable = "packages/tui" }
-dependencies = [
-    { name = "markdown-it-py" },
-    { name = "pillow" },
-    { name = "rich" },
-    { name = "textual" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "markdown-it-py", specifier = ">=3.0.0" },
-    { name = "pillow", specifier = ">=11.0.0" },
-    { name = "rich", specifier = ">=13.9.0" },
-    { name = "textual", specifier = ">=0.85.0" },
-]
-
-[[package]]
-name = "pi-web-ui"
-version = "0.0.0"
-source = { editable = "packages/web-ui" }
-dependencies = [
-    { name = "aiosqlite" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "pi-agent-core" },
-    { name = "pi-ai" },
-    { name = "pydantic" },
-    { name = "python-multipart" },
-    { name = "uvicorn", extra = ["standard"] },
-    { name = "websockets" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aiosqlite", specifier = ">=0.20.0" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "httpx", specifier = ">=0.28.0" },
-    { name = "pi-agent-core", editable = "packages/agent" },
-    { name = "pi-ai", editable = "packages/ai" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "python-multipart", specifier = ">=0.0.17" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
-    { name = "websockets", specifier = ">=13.1" },
 ]
 
 [[package]]

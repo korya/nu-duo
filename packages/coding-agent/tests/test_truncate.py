@@ -1,9 +1,9 @@
-"""Tests for pi_coding_agent.core.tools.truncate."""
+"""Tests for nu_coding_agent.core.tools.truncate."""
 
 from __future__ import annotations
 
 import pytest
-from pi_coding_agent.core.tools.truncate import (
+from nu_coding_agent.core.tools.truncate import (
     format_size,
     truncate_head,
     truncate_line,

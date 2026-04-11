@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pi_ai.types import TextContent
-from pi_coding_agent.core.tools.write import create_write_tool
+from nu_ai.types import TextContent
+from nu_coding_agent.core.tools.write import create_write_tool
 
 if TYPE_CHECKING:
     from pathlib import Path

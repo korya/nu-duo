@@ -1,4 +1,4 @@
-"""Tests for pi_ai.env_api_keys.
+"""Tests for nu_ai.env_api_keys.
 
 Ported from the documented behaviour of
 ``packages/ai/src/env-api-keys.ts`` — upstream has no dedicated test file.
@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from pi_ai.env_api_keys import get_env_api_key
+from nu_ai.env_api_keys import get_env_api_key
 
 if TYPE_CHECKING:
     from pathlib import Path

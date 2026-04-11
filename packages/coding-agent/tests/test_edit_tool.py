@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from pi_ai.types import TextContent
-from pi_coding_agent.core.tools.edit import create_edit_tool
+from nu_ai.types import TextContent
+from nu_coding_agent.core.tools.edit import create_edit_tool
 
 if TYPE_CHECKING:
     from pathlib import Path
-from pi_coding_agent.core.tools.edit_diff import (
+from nu_coding_agent.core.tools.edit_diff import (
     Edit,
     apply_edits_to_normalized_content,
     detect_line_ending,

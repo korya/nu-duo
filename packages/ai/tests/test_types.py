@@ -1,8 +1,8 @@
-"""Tests for pi_ai.types.
+"""Tests for nu_ai.types.
 
 Ported from the implicit TS type contracts in packages/ai/src/types.ts. The
 upstream repo has no dedicated types test file (TS catches these at compile
-time), so we assert behaviour the rest of pi_ai relies on:
+time), so we assert behaviour the rest of nu_ai relies on:
 
 1. Discriminated-union parsing via the ``type``/``role`` tag.
 2. Round-trip serialization in **camelCase** (session JSONL must stay
@@ -16,7 +16,7 @@ import json
 from typing import Any
 
 import pytest
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     AssistantMessageEvent,
     Content,

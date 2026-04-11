@@ -1,4 +1,4 @@
-"""Tests for pi_agent_core.agent_loop.
+"""Tests for nu_agent_core.agent_loop.
 
 The faux provider drives every test — no real model traffic. Tests cover
 the documented contracts in ``packages/agent/src/agent-loop.ts``:
@@ -22,13 +22,13 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from pi_agent_core.agent_loop import (
+from nu_agent_core.agent_loop import (
     agent_loop,
     agent_loop_continue,
     run_agent_loop,
     run_agent_loop_continue,
 )
-from pi_agent_core.types import (
+from nu_agent_core.types import (
     AfterToolCallContext,
     AfterToolCallResult,
     AgentContext,
@@ -40,13 +40,13 @@ from pi_agent_core.types import (
     BeforeToolCallContext,
     BeforeToolCallResult,
 )
-from pi_ai.api_registry import get_api_provider
-from pi_ai.providers.faux import (
+from nu_ai.api_registry import get_api_provider
+from nu_ai.providers.faux import (
     faux_assistant_message,
     faux_tool_call,
     register_faux_provider,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Cost,
     Message,
@@ -59,7 +59,7 @@ from pi_ai.types import (
 )
 
 if TYPE_CHECKING:
-    from pi_ai.utils.event_stream import AssistantMessageEventStream
+    from nu_ai.utils.event_stream import AssistantMessageEventStream
 
 # ---------------------------------------------------------------------------
 # Helpers

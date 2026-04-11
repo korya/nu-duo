@@ -1,17 +1,17 @@
-"""End-to-end tests for the top-level ``pi_ai.stream`` entry points.
+"""End-to-end tests for the top-level ``nu_ai.stream`` entry points.
 
 Uses the faux provider as the driver: registers it, queues a scripted
-response, and calls the module-level :func:`pi_ai.stream`, :func:`pi_ai.complete`,
-:func:`pi_ai.stream_simple`, :func:`pi_ai.complete_simple` — the exact
-integration points that downstream consumers (pi_agent_core, pi_coding_agent)
+response, and calls the module-level :func:`nu_ai.stream`, :func:`nu_ai.complete`,
+:func:`nu_ai.stream_simple`, :func:`nu_ai.complete_simple` — the exact
+integration points that downstream consumers (nu_agent_core, nu_coding_agent)
 will rely on.
 """
 
 from __future__ import annotations
 
-import pi_ai
+import nu_ai
 import pytest
-from pi_ai import (
+from nu_ai import (
     AssistantMessage,
     Context,
     DoneEvent,
@@ -20,7 +20,7 @@ from pi_ai import (
     TextContent,
     UserMessage,
 )
-from pi_ai.providers.faux import (
+from nu_ai.providers.faux import (
     faux_assistant_message,
     register_faux_provider,
 )
@@ -36,7 +36,7 @@ class TestTopLevelStream:
         try:
             registration.set_responses([faux_assistant_message("pong")])
             model = registration.get_model()
-            events = [e async for e in pi_ai.stream(model, _ctx("ping"))]
+            events = [e async for e in nu_ai.stream(model, _ctx("ping"))]
             done = events[-1]
             assert isinstance(done, DoneEvent)
             assert isinstance(done.message.content[0], TextContent)
@@ -49,7 +49,7 @@ class TestTopLevelStream:
         try:
             registration.set_responses([faux_assistant_message("answer")])
             model = registration.get_model()
-            result = await pi_ai.complete(model, _ctx("question"))
+            result = await nu_ai.complete(model, _ctx("question"))
             assert isinstance(result, AssistantMessage)
             assert result.stop_reason == "stop"
             assert isinstance(result.content[0], TextContent)
@@ -67,9 +67,9 @@ class TestTopLevelStream:
                 ]
             )
             model = registration.get_model()
-            events = [e async for e in pi_ai.stream_simple(model, _ctx())]
+            events = [e async for e in nu_ai.stream_simple(model, _ctx())]
             assert events[-1].type == "done"
-            result = await pi_ai.complete_simple(model, _ctx())
+            result = await nu_ai.complete_simple(model, _ctx())
             assert isinstance(result.content[0], TextContent)
             assert result.content[0].text == "simple-complete"
         finally:
@@ -91,9 +91,9 @@ class TestTopLevelStream:
             max_tokens=0,
         )
         with pytest.raises(ValueError, match="No API provider registered"):
-            pi_ai.stream(model, _ctx())
+            nu_ai.stream(model, _ctx())
 
 
 class TestBuiltinProvidersRegistered:
     def test_anthropic_builtin_registered(self) -> None:
-        assert pi_ai.get_api_provider("anthropic-messages") is not None
+        assert nu_ai.get_api_provider("anthropic-messages") is not None

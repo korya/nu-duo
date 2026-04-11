@@ -1,4 +1,4 @@
-"""Tests for pi_ai.utils.event_stream.
+"""Tests for nu_ai.utils.event_stream.
 
 Ported from ``packages/ai/src/utils/event-stream.ts`` — upstream has no
 dedicated test file (EventStream is exercised via provider tests), so these
@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Cost,
     DoneEvent,
@@ -27,7 +27,7 @@ from pi_ai.types import (
     TextDeltaEvent,
     Usage,
 )
-from pi_ai.utils.event_stream import (
+from nu_ai.utils.event_stream import (
     AssistantMessageEventStream,
     EventStream,
     create_assistant_message_event_stream,

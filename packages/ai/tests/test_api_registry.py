@@ -1,4 +1,4 @@
-"""Tests for pi_ai.api_registry.
+"""Tests for nu_ai.api_registry.
 
 Ported from the documented contract in
 ``packages/ai/src/api-registry.ts`` — no dedicated upstream test file.
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from pi_ai.api_registry import (
+from nu_ai.api_registry import (
     ApiProvider,
     clear_api_providers,
     get_api_provider,
@@ -17,9 +17,9 @@ from pi_ai.api_registry import (
     register_api_provider,
     unregister_api_providers,
 )
-from pi_ai.providers.register_builtins import register_builtin_providers
-from pi_ai.types import Context, Model, ModelCost
-from pi_ai.utils.event_stream import AssistantMessageEventStream
+from nu_ai.providers.register_builtins import register_builtin_providers
+from nu_ai.types import Context, Model, ModelCost
+from nu_ai.utils.event_stream import AssistantMessageEventStream
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -23,8 +23,8 @@ Recognized variables:
 * ``OPENAI_API_KEY`` for ``--openai``
 * ``ANTHROPIC_API_KEY`` (or ``ANTHROPIC_OAUTH_TOKEN``) for ``--anthropic``
 
-Override the model with ``PI_SAMPLE_OPENAI_MODEL`` /
-``PI_SAMPLE_ANTHROPIC_MODEL``.
+Override the model with ``NU_SAMPLE_OPENAI_MODEL`` /
+``NU_SAMPLE_ANTHROPIC_MODEL``.
 
 The sample subscribes to the agent's event stream and prints text and
 thinking deltas live so you can see the model working — without that the
@@ -42,8 +42,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from dotenv import load_dotenv
-from pi_agent_core.agent import Agent, AgentOptions
-from pi_ai import (
+from nu_agent_core.agent import Agent, AgentOptions
+from nu_ai import (
     AssistantMessage,
     Model,
     ModelCost,
@@ -52,17 +52,17 @@ from pi_ai import (
     get_env_api_key,
     get_model,
 )
-from pi_coding_agent.core.tools.bash import create_bash_tool
-from pi_coding_agent.core.tools.edit import create_edit_tool
-from pi_coding_agent.core.tools.read import create_read_tool
-from pi_coding_agent.core.tools.write import create_write_tool
+from nu_coding_agent.core.tools.bash import create_bash_tool
+from nu_coding_agent.core.tools.edit import create_edit_tool
+from nu_coding_agent.core.tools.read import create_read_tool
+from nu_coding_agent.core.tools.write import create_write_tool
 
 if TYPE_CHECKING:
-    from pi_agent_core.types import AgentEvent
+    from nu_agent_core.types import AgentEvent
 
 _DEFAULT_PROMPT = "read README.md and summarize it in three bullet points"
-_DEFAULT_OPENAI_MODEL_ID = os.environ.get("PI_SAMPLE_OPENAI_MODEL", "gpt-4o-mini")
-_DEFAULT_ANTHROPIC_MODEL_ID = os.environ.get("PI_SAMPLE_ANTHROPIC_MODEL", "claude-sonnet-4-5")
+_DEFAULT_OPENAI_MODEL_ID = os.environ.get("NU_SAMPLE_OPENAI_MODEL", "gpt-4o-mini")
+_DEFAULT_ANTHROPIC_MODEL_ID = os.environ.get("NU_SAMPLE_ANTHROPIC_MODEL", "claude-sonnet-4-5")
 
 
 # ---------------------------------------------------------------------------

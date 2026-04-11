@@ -18,8 +18,8 @@ test:
 # Run pytest with per-package and total coverage reporting
 test-cov:
     uv run pytest \
-        --cov=pi_ai --cov=pi_agent_core --cov=pi_tui \
-        --cov=pi_coding_agent --cov=pi_mom --cov=pi_pods --cov=pi_web_ui \
+        --cov=nu_ai --cov=nu_agent_core --cov=nu_tui \
+        --cov=nu_coding_agent --cov=nu_mom --cov=nu_pods --cov=nu_web_ui \
         --cov-report=term-missing
 
 # Run the end-to-end sample app (uses .env for API keys).

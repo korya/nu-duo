@@ -1,4 +1,4 @@
-"""Tests for pi_tui.fuzzy.
+"""Tests for nu_tui.fuzzy.
 
 Port of ``packages/tui/src/fuzzy.ts``. Verifies the scoring contract:
 
@@ -13,7 +13,7 @@ Port of ``packages/tui/src/fuzzy.ts``. Verifies the scoring contract:
 
 from __future__ import annotations
 
-from pi_tui.fuzzy import fuzzy_filter, fuzzy_match
+from nu_tui.fuzzy import fuzzy_filter, fuzzy_match
 
 
 class TestFuzzyMatch:

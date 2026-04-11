@@ -1,4 +1,4 @@
-"""Tests for pi_agent_core.types.
+"""Tests for nu_agent_core.types.
 
 Ports the documented contracts from ``packages/agent/src/types.ts``.
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from pi_agent_core.types import (
+from nu_agent_core.types import (
     AfterToolCallResult,
     AgentContext,
     AgentEvent,
@@ -20,7 +20,7 @@ from pi_agent_core.types import (
     ThinkingLevel,
     ToolExecutionMode,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Cost,
     Message,
@@ -105,7 +105,7 @@ class TestAgentTool:
 
     def test_tool_is_also_base_tool_shape(self) -> None:
         tool = _echo_tool()
-        # AgentTool extends pi_ai Tool — name/description/parameters fields match.
+        # AgentTool extends nu_ai Tool — name/description/parameters fields match.
         base_tool = Tool(
             name=tool.name,
             description=tool.description,

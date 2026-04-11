@@ -1,4 +1,4 @@
-"""Tests for pi_tui.keys.
+"""Tests for nu_tui.keys.
 
 The Python port exposes a much smaller surface than the TS original
 because Textual already parses raw stdin into normalized key strings.
@@ -12,7 +12,7 @@ We only need:
 
 from __future__ import annotations
 
-from pi_tui.keys import Key, matches_key, normalize_key_id
+from nu_tui.keys import Key, matches_key, normalize_key_id
 
 
 class TestKeyConstants:

@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.anthropic streaming (abstraction 8b).
+"""Tests for nu_ai.providers.anthropic streaming (abstraction 8b).
 
 Exercises :func:`stream_anthropic` end-to-end against a fake Anthropic SDK
 client. The fake mimics the shape of
@@ -16,8 +16,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from pi_ai.providers.anthropic import stream_anthropic
-from pi_ai.types import (
+from nu_ai.providers.anthropic import stream_anthropic
+from nu_ai.types import (
     AnthropicOptions,
     AssistantMessage,
     Context,

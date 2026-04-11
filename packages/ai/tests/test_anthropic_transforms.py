@@ -1,4 +1,4 @@
-"""Tests for the pure transform functions in pi_ai.providers.anthropic.
+"""Tests for the pure transform functions in nu_ai.providers.anthropic.
 
 Covers every branch of the logic ported from
 ``packages/ai/src/providers/anthropic.ts`` that does not require the
@@ -14,7 +14,7 @@ portion that works without network access).
 from __future__ import annotations
 
 import pytest
-from pi_ai.providers.anthropic import (
+from nu_ai.providers.anthropic import (
     build_params,
     convert_content_blocks,
     convert_messages,
@@ -30,7 +30,7 @@ from pi_ai.providers.anthropic import (
     supports_adaptive_thinking,
     to_claude_code_name,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AnthropicOptions,
     AssistantMessage,
     Context,

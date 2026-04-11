@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.openai_completions pure transforms.
+"""Tests for nu_ai.providers.openai_completions pure transforms.
 
 Covers the port of message conversion, tool conversion, params building,
 compat detection, stop-reason mapping, and usage parsing from
@@ -8,7 +8,7 @@ compat detection, stop-reason mapping, and usage parsing from
 from __future__ import annotations
 
 import pytest
-from pi_ai.providers.openai_completions import (
+from nu_ai.providers.openai_completions import (
     convert_messages,
     convert_tools,
     detect_compat,
@@ -18,7 +18,7 @@ from pi_ai.providers.openai_completions import (
     map_stop_reason,
     parse_chunk_usage,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Context,
     Cost,

@@ -1,4 +1,4 @@
-"""Tests for pi_tui.kill_ring.
+"""Tests for nu_tui.kill_ring.
 
 Port of the documented contract from ``packages/tui/src/kill-ring.ts``:
 push (with prepend / accumulate), peek, rotate, length.
@@ -6,7 +6,7 @@ push (with prepend / accumulate), peek, rotate, length.
 
 from __future__ import annotations
 
-from pi_tui.kill_ring import KillRing
+from nu_tui.kill_ring import KillRing
 
 
 class TestPush:

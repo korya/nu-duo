@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from pi_ai.types import TextContent
-from pi_coding_agent.core.tools.read import create_read_tool
+from nu_ai.types import TextContent
+from nu_coding_agent.core.tools.read import create_read_tool
 
 if TYPE_CHECKING:
     from pathlib import Path

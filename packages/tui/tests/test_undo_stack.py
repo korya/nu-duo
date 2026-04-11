@@ -1,4 +1,4 @@
-"""Tests for pi_tui.undo_stack.
+"""Tests for nu_tui.undo_stack.
 
 Ports the documented contract from
 ``packages/tui/src/undo-stack.ts``: clone-on-push, pop returns the most
@@ -7,7 +7,7 @@ recent snapshot, ``length`` reports stack depth.
 
 from __future__ import annotations
 
-from pi_tui.undo_stack import UndoStack
+from nu_tui.undo_stack import UndoStack
 
 
 class TestUndoStack:

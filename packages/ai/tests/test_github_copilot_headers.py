@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.github_copilot_headers.
+"""Tests for nu_ai.providers.github_copilot_headers.
 
 Port of the documented contract in
 ``packages/ai/src/providers/github-copilot-headers.ts``.
@@ -6,12 +6,12 @@ Port of the documented contract in
 
 from __future__ import annotations
 
-from pi_ai.providers.github_copilot_headers import (
+from nu_ai.providers.github_copilot_headers import (
     build_copilot_dynamic_headers,
     has_copilot_vision_input,
     infer_copilot_initiator,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Cost,
     ImageContent,

@@ -1,12 +1,12 @@
-"""Tests for the small pi_ai utility modules.
+"""Tests for the small nu_ai utility modules.
 
 Covers ports of:
 
-* ``packages/ai/src/utils/json-parse.ts``      → pi_ai.utils.json_parse
-* ``packages/ai/src/utils/sanitize-unicode.ts`` → pi_ai.utils.sanitize_unicode
-* ``packages/ai/src/utils/hash.ts``             → pi_ai.utils.hash
-* ``packages/ai/src/utils/overflow.ts``         → pi_ai.utils.overflow
-* ``packages/ai/src/utils/validation.ts``       → pi_ai.utils.validation
+* ``packages/ai/src/utils/json-parse.ts``      → nu_ai.utils.json_parse
+* ``packages/ai/src/utils/sanitize-unicode.ts`` → nu_ai.utils.sanitize_unicode
+* ``packages/ai/src/utils/hash.ts``             → nu_ai.utils.hash
+* ``packages/ai/src/utils/overflow.ts``         → nu_ai.utils.overflow
+* ``packages/ai/src/utils/validation.ts``       → nu_ai.utils.validation
 
 Upstream has no dedicated test files for these modules, so the tests cover
 the documented contracts and known-good behaviour from usage elsewhere.
@@ -15,7 +15,7 @@ the documented contracts and known-good behaviour from usage elsewhere.
 from __future__ import annotations
 
 import pytest
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Cost,
     TextContent,
@@ -23,11 +23,11 @@ from pi_ai.types import (
     ToolCall,
     Usage,
 )
-from pi_ai.utils.hash import short_hash
-from pi_ai.utils.json_parse import parse_streaming_json
-from pi_ai.utils.overflow import get_overflow_patterns, is_context_overflow
-from pi_ai.utils.sanitize_unicode import sanitize_surrogates
-from pi_ai.utils.validation import validate_tool_arguments, validate_tool_call
+from nu_ai.utils.hash import short_hash
+from nu_ai.utils.json_parse import parse_streaming_json
+from nu_ai.utils.overflow import get_overflow_patterns, is_context_overflow
+from nu_ai.utils.sanitize_unicode import sanitize_surrogates
+from nu_ai.utils.validation import validate_tool_arguments, validate_tool_call
 
 # ---------------------------------------------------------------------------
 # json_parse

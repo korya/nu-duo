@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.google pure transforms.
+"""Tests for nu_ai.providers.google pure transforms.
 
 Covers the port of ``packages/ai/src/providers/google.ts`` and
 ``google-shared.ts``: message conversion, tool conversion, thinking-level
@@ -8,7 +8,7 @@ mapping, signature handling, stop-reason mapping, and params building.
 from __future__ import annotations
 
 import pytest
-from pi_ai.providers.google import (
+from nu_ai.providers.google import (
     convert_messages,
     convert_tools,
     get_google_budget,
@@ -22,7 +22,7 @@ from pi_ai.providers.google import (
     requires_tool_call_id,
     retain_thought_signature,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Context,
     Cost,

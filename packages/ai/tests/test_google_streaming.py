@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.google streaming.
+"""Tests for nu_ai.providers.google streaming.
 
 Uses a fake ``google.genai.Client``-shaped client whose
 ``client.aio.models.generate_content_stream(...)`` returns an async iterator
@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from pi_ai.providers.google import stream_google
-from pi_ai.types import (
+from nu_ai.providers.google import stream_google
+from nu_ai.types import (
     Context,
     DoneEvent,
     ErrorEvent,

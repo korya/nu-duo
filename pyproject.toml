@@ -1,5 +1,5 @@
 [project]
-name = "pi-monorepo"
+name = "nu-duo"
 version = "0.0.0"
 description = "Python port of badlogic/pi-mono — a minimalist, layered AI agent stack"
 requires-python = ">=3.13"
@@ -9,13 +9,13 @@ authors = [{ name = "Pi Python port" }]
 
 # Meta-package: no runtime dependencies; depends only on workspace members.
 dependencies = [
-    "pi-ai",
-    "pi-agent-core",
-    "pi-tui",
-    "pi-coding-agent",
-    "pi-mom",
-    "pi-pods",
-    "pi-web-ui",
+    "nu-ai",
+    "nu-agent-core",
+    "nu-tui",
+    "nu-coding-agent",
+    "nu-mom",
+    "nu-pods",
+    "nu-web-ui",
 ]
 
 [dependency-groups]
@@ -36,13 +36,13 @@ dev = [
 members = ["packages/*"]
 
 [tool.uv.sources]
-pi-ai = { workspace = true }
-pi-agent-core = { workspace = true }
-pi-tui = { workspace = true }
-pi-coding-agent = { workspace = true }
-pi-mom = { workspace = true }
-pi-pods = { workspace = true }
-pi-web-ui = { workspace = true }
+nu-ai = { workspace = true }
+nu-agent-core = { workspace = true }
+nu-tui = { workspace = true }
+nu-coding-agent = { workspace = true }
+nu-mom = { workspace = true }
+nu-pods = { workspace = true }
+nu-web-ui = { workspace = true }
 
 # ---------------------------------------------------------------------------
 # Ruff — matches biome.json at upstream: tab-ish 120-col, recommended rules.

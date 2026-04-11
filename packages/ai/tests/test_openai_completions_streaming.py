@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.openai_completions streaming.
+"""Tests for nu_ai.providers.openai_completions streaming.
 
 Uses a fake ``AsyncOpenAI``-shaped client whose
 ``chat.completions.create(...)`` returns an async iterator yielding
@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
 
-from pi_ai.providers.openai_completions import stream_openai_completions
-from pi_ai.types import (
+from nu_ai.providers.openai_completions import stream_openai_completions
+from nu_ai.types import (
     Context,
     DoneEvent,
     ErrorEvent,

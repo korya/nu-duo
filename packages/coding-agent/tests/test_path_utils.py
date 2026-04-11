@@ -1,10 +1,10 @@
-"""Tests for pi_coding_agent.core.tools.path_utils."""
+"""Tests for nu_coding_agent.core.tools.path_utils."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from pi_coding_agent.core.tools.path_utils import (
+from nu_coding_agent.core.tools.path_utils import (
     expand_path,
     resolve_read_path,
     resolve_to_cwd,

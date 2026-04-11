@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.faux.
+"""Tests for nu_ai.providers.faux.
 
 Ported from the documented behaviour of
 ``packages/ai/src/providers/faux.ts``. The faux provider is the test harness
@@ -16,8 +16,8 @@ every downstream test suite. These tests verify:
 
 from __future__ import annotations
 
-from pi_ai.api_registry import get_api_provider
-from pi_ai.providers.faux import (
+from nu_ai.api_registry import get_api_provider
+from nu_ai.providers.faux import (
     FauxModelDefinition,
     _CallState,  # pyright: ignore[reportPrivateUsage]
     faux_assistant_message,
@@ -26,7 +26,7 @@ from pi_ai.providers.faux import (
     faux_tool_call,
     register_faux_provider,
 )
-from pi_ai.types import (
+from nu_ai.types import (
     AssistantMessage,
     Context,
     DoneEvent,

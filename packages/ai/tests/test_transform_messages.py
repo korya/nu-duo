@@ -1,4 +1,4 @@
-"""Tests for pi_ai.providers.transform_messages.
+"""Tests for nu_ai.providers.transform_messages.
 
 Ports ``packages/ai/test/transform-messages-copilot-openai-to-anthropic.test.ts``
 verbatim (two cases) and adds coverage for every branch of the two-pass
@@ -12,8 +12,8 @@ from __future__ import annotations
 import re
 
 import pytest
-from pi_ai.providers.transform_messages import transform_messages
-from pi_ai.types import (
+from nu_ai.providers.transform_messages import transform_messages
+from nu_ai.types import (
     AssistantMessage,
     Cost,
     ImageContent,
