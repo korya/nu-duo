@@ -1,6 +1,6 @@
 # Forward quoted CLI arguments to recipes via "$@" instead of plain string
-# substitution. Without this, ``just run-sample "a b" .`` would word-split
-# the prompt into separate argv entries.
+# substitution. Without this, ``just run-example-one-shot "a b" .`` would
+# word-split the prompt into separate argv entries.
 set positional-arguments := true
 
 default:
@@ -24,12 +24,20 @@ test-cov:
         --cov-report=term-missing \
         --cov-fail-under=90
 
-# Run the end-to-end sample app (uses .env for API keys).
-# Usage: just run-sample
-#        just run-sample "your prompt here"
-#        just run-sample --anthropic "your prompt here" /path/to/repo
-run-sample *ARGS:
-    uv run python examples/sample.py "$@"
+# Run the one-shot sample (defaults to OpenAI gpt-4o-mini, uses .env).
+# Pass --anthropic to switch providers.
+# Usage: just run-example-one-shot
+#        just run-example-one-shot "your prompt here"
+#        just run-example-one-shot --anthropic "your prompt here"
+run-example-one-shot *ARGS:
+    uv run python examples/one-shot.py "$@"
+
+# Run the interactive REPL sample (defaults to OpenAI gpt-4o-mini, uses .env).
+# Pass --anthropic to switch providers.
+# Usage: just run-example-interactive
+#        just run-example-interactive --anthropic
+run-example-interactive *ARGS:
+    uv run python examples/interactive.py "$@"
 
 # Run the `nu` CLI through uv (uses .env for API keys).
 # Usage: just nu --help

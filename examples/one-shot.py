@@ -1,15 +1,20 @@
-"""End-to-end sample exercising the four core tools against a real provider.
+"""End-to-end one-shot sample exercising the four core tools against a real provider.
+
+Single-prompt variant with provider switching via ``--openai`` /
+``--anthropic`` flags. For minimal "just run a single provider" examples
+see ``one-shot-openai.py`` / ``one-shot-anthropic.py``. For the
+multi-turn REPL versions see ``interactive*.py``.
 
 Run with::
 
-    just run-sample                                # OpenAI (default)
-    just run-sample --anthropic                    # Anthropic
-    just run-sample --openai "your prompt here"
-    just run-sample --anthropic "your prompt" /path/to/repo
+    just run-one-shot                                # OpenAI (default)
+    just run-one-shot --anthropic                    # Anthropic
+    just run-one-shot --openai "your prompt here"
+    just run-one-shot --anthropic "your prompt" /path/to/repo
 
 CLI shape (positional args after the optional flag)::
 
-    sample.py [--openai|--anthropic] [PROMPT] [REPO]
+    one-shot.py [--openai|--anthropic] [PROMPT] [REPO]
 
 Defaults:
 

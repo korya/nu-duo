@@ -26,39 +26,55 @@ prefixed with `nu-` (PyPI distribution name) / `nu_` (Python import name):
 ## Development
 
 ```bash
-uv sync          # install workspace + dev dependencies
-just lint        # ruff check --fix + ruff format
-just test        # pytest across all packages
-just test-cov    # per-package + total coverage
-just run-sample  # end-to-end sample against a real provider (see below)
+uv sync                       # install workspace + dev dependencies
+just lint                     # ruff check --fix + ruff format
+just test                     # pytest across all packages
+just test-cov                 # per-package + total coverage
+just run-example-one-shot     # one-shot sample (defaults to OpenAI gpt-4o-mini)
+just run-example-interactive  # interactive REPL sample (defaults to OpenAI gpt-4o-mini)
 ```
 
 The full toolchain (`ruff`, `pyright` strict, `pytest` with `--import-mode=
 importlib`) is configured at the workspace root in `pyproject.toml`. Type
 checking, lint and tests all run against the entire workspace by default.
 
-## Sample app
+## Examples
 
-`examples/sample.py` exercises the four core tools end-to-end via
-`nu_agent_core.Agent` against a real LLM provider. Run it through the
-`just run-sample` recipe:
+The `examples/` directory ships several runnable demos against real LLM
+providers:
+
+| File | What it does |
+|---|---|
+| `one-shot-openai.py` | Minimal single-prompt example against OpenAI `gpt-4o-mini`. Shortest path from import to a working agent. |
+| `one-shot-anthropic.py` | Same shape, but against Anthropic `claude-haiku-4-5`. |
+| `one-shot.py` | Single-prompt sample with provider switching (`--openai`/`--anthropic`), the four core tools wired in, and live streaming output. |
+| `interactive-openai.py` | Minimal multi-turn REPL against OpenAI `gpt-4o-mini`. |
+| `interactive-anthropic.py` | Same, against Anthropic `claude-haiku-4-5`. |
+| `interactive.py` | Multi-turn REPL with provider switching, the four core tools, and live streaming output. |
 
 ```bash
-# OpenAI (default — gpt-4o-mini)
-just run-sample
-just run-sample "summarize the project README in three bullet points"
+# One-shot sample (defaults to OpenAI gpt-4o-mini, four core tools wired in)
+just run-example-one-shot
+just run-example-one-shot "summarize the project README in three bullet points"
+just run-example-one-shot --anthropic "explain the agent loop"
+just run-example-one-shot "list TODO comments" /path/to/some/repo
 
-# Anthropic
-just run-sample --anthropic "explain the agent loop architecture"
+# Interactive REPL sample (defaults to OpenAI gpt-4o-mini)
+just run-example-interactive
+just run-example-interactive --anthropic
 
-# Custom prompt + repo path
-just run-sample "list TODO comments" /path/to/some/repo
+# Single-provider minimal variants (no flag handling, easiest to read)
+uv run python examples/one-shot-openai.py
+uv run python examples/one-shot-anthropic.py "what is the capital of Iceland?"
+uv run python examples/interactive-openai.py
+uv run python examples/interactive-anthropic.py
 ```
 
 API keys are loaded from a top-level `.env` file via `python-dotenv` (see
-`.env.example`). `OPENAI_API_KEY` is required for `--openai`,
-`ANTHROPIC_API_KEY` (or `ANTHROPIC_OAUTH_TOKEN`) for `--anthropic`. Override
-the model id via `PI_SAMPLE_OPENAI_MODEL` / `PI_SAMPLE_ANTHROPIC_MODEL`.
+`.env.example`). `OPENAI_API_KEY` is required for the OpenAI examples,
+`ANTHROPIC_API_KEY` (or `ANTHROPIC_OAUTH_TOKEN`) for the Anthropic ones.
+Override the model id used by `one-shot.py` / `interactive.py` via
+`NU_SAMPLE_OPENAI_MODEL` / `NU_SAMPLE_ANTHROPIC_MODEL`.
 
 ## Project layout
 
