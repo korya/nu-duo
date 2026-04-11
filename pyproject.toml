@@ -1,0 +1,152 @@
+[project]
+name = "pi-monorepo"
+version = "0.0.0"
+description = "Python port of badlogic/pi-mono — a minimalist, layered AI agent stack"
+requires-python = ">=3.13"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Pi Python port" }]
+
+# Meta-package: no runtime dependencies; depends only on workspace members.
+dependencies = [
+    "pi-ai",
+    "pi-agent-core",
+    "pi-tui",
+    "pi-coding-agent",
+    "pi-mom",
+    "pi-pods",
+    "pi-web-ui",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.0",
+    "pyright>=1.1.400",
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "pytest-httpx>=0.35.0",
+    "syrupy>=4.8.0",
+    "anyio>=4.7.0",
+    "trio>=0.27.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+pi-ai = { workspace = true }
+pi-agent-core = { workspace = true }
+pi-tui = { workspace = true }
+pi-coding-agent = { workspace = true }
+pi-mom = { workspace = true }
+pi-pods = { workspace = true }
+pi-web-ui = { workspace = true }
+
+# ---------------------------------------------------------------------------
+# Ruff — matches biome.json at upstream: tab-ish 120-col, recommended rules.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+extend-exclude = [
+    "**/models_generated.py",
+    "**/resources/**",
+    "packages/web-ui/frontend/**",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",       # pycodestyle + pyflakes
+    "I",                 # isort
+    "UP",                # pyupgrade
+    "B",                 # bugbear
+    "SIM",               # simplify
+    "RUF",               # ruff-specific
+    "TCH",               # type-checking imports
+    "ASYNC",             # async-specific
+    "PIE",               # misc
+    "PL",                # pylint subset
+    "PT",                # pytest style
+]
+ignore = [
+    "E501",     # line too long — formatter handles
+    "PLR0913",  # too many arguments — ports TS signatures verbatim
+    "PLR2004",  # magic numbers — ports TS constants verbatim
+    "PLR0912",  # too many branches — ports TS control flow verbatim
+    "PLR0915",  # too many statements — same
+    "PLR0911",  # too many returns — same
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["PLR2004", "S101", "PT"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ---------------------------------------------------------------------------
+# Pyright — strict everywhere.
+# ---------------------------------------------------------------------------
+[tool.pyright]
+include = ["packages"]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/models_generated.py",
+    "**/resources",
+    "packages/web-ui/frontend",
+]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false       # third-party SDKs often lack stubs
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownLambdaType = false
+reportMissingParameterType = "error"
+reportUntypedFunctionDecorator = "warning"
+
+# ---------------------------------------------------------------------------
+# Pytest.
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["packages"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+# importlib mode so test modules with the same basename in different packages
+# (e.g. packages/ai/tests/test_types.py vs packages/agent/tests/test_types.py)
+# don't collide when pytest imports them.
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+]
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:pydantic.*",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["packages"]
+omit = [
+    "*/tests/*",
+    "*/models_generated.py",
+    "*/resources/*",
+]
+disable_warnings = ["module-not-imported", "no-data-collected"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]
