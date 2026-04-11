@@ -5,8 +5,14 @@ upstream version supports interactive, print, json, and rpc modes plus
 session management, extensions, skills, and themes. This Python port
 currently supports:
 
-* ``nu --print "..."`` — single-shot print mode (no session persistence
-  yet — that lands when nu_coding_agent.core.session_manager is ported).
+* ``nu --print "..."`` — single-shot print mode. Persists to a fresh
+  session under ``~/.nu/agent/sessions/<encoded-cwd>/`` by default.
+* ``--continue`` — resume the most recent session in the cwd, or start
+  a new one if none exists.
+* ``--session FILE`` — open a specific session file (typically used
+  with the path printed by an earlier run).
+* ``--ephemeral`` — opt out of session persistence; runs entirely
+  in-memory like the pre-session-manager behaviour.
 * ``--openai`` (default) / ``--anthropic`` provider shortcuts.
 * ``--model <id>`` to override the default model id.
 * ``--api-key <key>`` to override env-based credentials.
@@ -18,8 +24,8 @@ Keys are loaded from a ``.env`` file via ``python-dotenv`` if one is
 present in the current directory or any parent. Override the model id
 via ``NU_OPENAI_MODEL`` / ``NU_ANTHROPIC_MODEL``.
 
-The interactive mode and the JSON / RPC modes will land alongside
-the session manager in a follow-up phase.
+The interactive, JSON, and RPC modes will land alongside ``nu_tui``
+in a follow-up phase.
 """
 
 from __future__ import annotations
@@ -42,6 +48,10 @@ from nu_ai import (
     get_model,
 )
 
+from nu_coding_agent.core.agent_session import AgentSession
+from nu_coding_agent.core.auth_storage import AuthStorage
+from nu_coding_agent.core.model_registry import ModelRegistry
+from nu_coding_agent.core.session_manager import SessionManager
 from nu_coding_agent.core.system_prompt import (
     BuildSystemPromptOptions,
     build_system_prompt,
@@ -74,6 +84,9 @@ class _Args:
     show_help: bool = False
     show_version: bool = False
     quiet: bool = False
+    continue_session: bool = False
+    session_file: str | None = None
+    ephemeral: bool = False
     positional: list[str] = field(default_factory=list)
 
 
@@ -128,6 +141,16 @@ def _parse_args(argv: list[str]) -> tuple[_Args, int | None]:
                 _stderr("--cwd requires a value")
                 return args, 2
             args.cwd = argv[i]
+        elif arg in {"-c", "--continue"}:
+            args.continue_session = True
+        elif arg == "--session":
+            i += 1
+            if i >= len(argv):
+                _stderr("--session requires a value")
+                return args, 2
+            args.session_file = argv[i]
+        elif arg == "--ephemeral":
+            args.ephemeral = True
         elif arg.startswith("-"):
             _stderr(f"Unknown flag: {arg}")
             return args, 2
@@ -169,6 +192,12 @@ OPTIONS
   --cwd PATH               Root the seven tools at PATH (default: cwd).
   --no-tools               Run without any tools (pure chat).
 
+  -c, --continue           Resume the most recent session in this cwd
+                           (creates a new one if none exists).
+  --session FILE           Open a specific session JSONL file.
+  --ephemeral              Run entirely in-memory; do not persist a
+                           session to disk.
+
   -h, --help               Show this help and exit.
   -v, --version            Print version and exit.
 
@@ -176,6 +205,8 @@ EXAMPLES
   nu --print "what is 2 + 2"
   nu -p "summarise README.md in three bullets" --cwd .
   nu --anthropic --print "explain the agent loop" --no-tools
+  nu -c "and what about the streaming pipeline?"
+  nu --session ~/.nu/agent/sessions/.../sess.jsonl "follow up"
 """
     )
 
@@ -344,6 +375,36 @@ def _resolve_cwd_sync(arg: str | None) -> str:
     return str(Path(arg).resolve()) if arg else str(Path.cwd().resolve())
 
 
+def _build_session_manager(args: _Args, cwd: str) -> SessionManager:
+    """Pick the SessionManager flavour based on the parsed CLI flags.
+
+    Precedence: ``--ephemeral`` > ``--session FILE`` > ``--continue``
+    > fresh session in the default per-cwd directory.
+    """
+    if args.ephemeral:
+        return SessionManager.in_memory(cwd=cwd)
+    if args.session_file is not None:
+        return SessionManager.open(args.session_file, cwd_override=cwd)
+    if args.continue_session:
+        return SessionManager.continue_recent(cwd)
+    return SessionManager.create(cwd)
+
+
+def _build_auth_storage(args: _Args, model: Model) -> AuthStorage:
+    """Build an in-memory AuthStorage seeded with the chosen credential.
+
+    The Python CLI keeps credentials out of ``~/.nu/auth.json`` for
+    print-mode runs — env vars + ``--api-key`` are the only sources we
+    honour, matching the previous CLI's behaviour. ``has_auth`` will
+    pick up env vars automatically; ``--api-key`` becomes a runtime
+    override.
+    """
+    storage = AuthStorage.in_memory()
+    if args.api_key:
+        storage.set_runtime_api_key(model.provider, args.api_key)
+    return storage
+
+
 async def _run_print_mode(args: _Args, model: Model) -> int:
     cwd = await asyncio.to_thread(_resolve_cwd_sync, args.cwd)
     tools: list[AgentTool[Any, Any]] = [] if args.no_tools else create_all_tools(cwd)
@@ -368,16 +429,33 @@ async def _run_print_mode(args: _Args, model: Model) -> int:
 
     agent = Agent(AgentOptions(initial_state=initial_state))
 
+    auth_storage = _build_auth_storage(args, model)
+    model_registry = ModelRegistry.in_memory(auth_storage)
+    model_registry._models.append(model)  # type: ignore[attr-defined]
+    session_manager = _build_session_manager(args, cwd)
+    session = AgentSession.create(
+        agent=agent,
+        session_manager=session_manager,
+        model_registry=model_registry,
+        auth_storage=auth_storage,
+        cwd=cwd,
+    )
+
     if not args.quiet:
         print(f"\033[2m[provider]\033[0m {args.provider}")
         print(f"\033[2m[model]   \033[0m {model.id}")
         print(f"\033[2m[cwd]     \033[0m {cwd}")
+        session_file = session_manager.get_session_file()
+        if session_file is not None:
+            print(f"\033[2m[session] \033[0m {session_file}")
+        elif args.ephemeral:
+            print("\033[2m[session] \033[0m (ephemeral)")
         prompt = " ".join(args.positional)
         print(f"\033[2m[task]    \033[0m {prompt}\n", flush=True)
 
     state = _PrintState()
 
-    async def listener(event: AgentEvent, _signal: Any) -> None:
+    def listener(event: AgentEvent) -> None:
         if event["type"] == "message_update":
             _handle_assistant_event(event["assistant_message_event"], state, quiet=args.quiet)
             return
@@ -394,16 +472,18 @@ async def _run_print_mode(args: _Args, model: Model) -> int:
         if event["type"] == "agent_end" and not args.quiet:
             print(flush=True)
 
-    agent.subscribe(listener)
+    session.subscribe(listener)
 
     prompt = " ".join(args.positional)
     try:
-        await agent.prompt(prompt)
+        await session.prompt(prompt)
     except KeyboardInterrupt:
         agent.abort()
         await agent.wait_for_idle()
         _stderr("[aborted]")
         return 130
+    finally:
+        session.close()
 
     final = agent.state.messages[-1] if agent.state.messages else None
     if isinstance(final, AssistantMessage) and final.stop_reason == "error":

@@ -12,7 +12,7 @@ prefixed with `nu-` (PyPI distribution name) / `nu_` (Python import name):
 | `@mariozechner/pi-ai` | `nu-ai` | partial — types, event stream, registry, transforms, faux + Anthropic + OpenAI Chat Completions + Google providers, top-level stream/complete; OpenAI Responses, Bedrock, Mistral, Vertex, OAuth flows still deferred |
 | `@mariozechner/pi-agent-core` | `nu-agent-core` | done — types, agent loop with sequential/parallel tool execution, stateful Agent class, hooks, steering/follow-up queues |
 | `@mariozechner/pi-tui` | `nu-tui` | partial — pure utilities (UndoStack, KillRing, fuzzy, keys, keybindings); Textual-backed renderer + components deferred until consumed by interactive mode |
-| `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — four core tools (read, write, edit, bash) with shared helpers; session manager, compaction, extensions, agent_session, modes/print, modes/rpc, CLI entry point still deferred |
+| `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — all seven tools (read, write, edit, bash, ls, find, grep), system_prompt, agent_session, session_manager (full tree + JSONL byte-compat with TS, including `create_branched_session`), compaction, print mode wired through `nu --print` with `--continue` / `--session` / `--ephemeral` flags; extensions, skills, RPC mode, interactive mode still deferred |
 | `@mariozechner/pi-mom` | `nu-mom` | scaffold only |
 | `@mariozechner/pi-pods` | `nu-pods` | done — types, config, ssh wrappers, model catalogue, all commands (setup/start/stop/list/logs/models/agent), `nu-pods` CLI; `agent` subcommand resolves invocations but the actual coding-agent launcher is stubbed pending a programmatic spawn entrypoint in nu-coding-agent |
 | `@mariozechner/pi-web-ui` | `nu-web-ui` | scaffold only |
@@ -140,11 +140,16 @@ oversights.
 - **Coverage policy.** `nu_coding_agent/cli.py` is excluded from
   coverage as a thin glue layer (matches the `nu_pods/cli.py` policy).
   The library code stays under the 90 % per-package gate.
-- **Deferred surface area.** Session manager, compaction,
-  branch-summarization, extensions (entry-point based instead of npm
-  packages), skills, agent_session_runtime, modes/rpc, modes/interactive,
-  and the full set of CLI flags are still deferred. The minimal `nu`
-  CLI currently supports `--print` mode only.
+- **Deferred surface area.** Extensions (entry-point based instead of
+  npm packages), skills, agent_session_runtime, modes/rpc,
+  modes/interactive, and most upstream CLI flags are still deferred.
+  The minimal `nu` CLI supports `--print` mode with session
+  persistence (`--continue`, `--session FILE`, `--ephemeral`); the
+  remaining 30+ TS flags will land alongside interactive mode.
+- **`nu` CLI uses an in-memory `AuthStorage`.** Print-mode runs only
+  read credentials from environment variables and `--api-key`; they
+  do not touch `~/.nu/auth.json`. The on-disk credential store will
+  land alongside interactive mode and the `nu auth` subcommand.
 
 ### `nu-pods`
 

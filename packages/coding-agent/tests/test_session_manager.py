@@ -750,3 +750,210 @@ def test_get_default_session_dir_with_custom_agent_dir(tmp_path: Path) -> None:
     out = get_default_session_dir("/work", agent_dir=str(tmp_path / "custom"))
     assert "custom" in out
     assert Path(out).exists()
+
+
+# ---------------------------------------------------------------------------
+# create_branched_session
+# ---------------------------------------------------------------------------
+
+
+def test_create_branched_session_in_memory_forks_path() -> None:
+    sm = SessionManager.in_memory()
+    a = sm.append_message(_user_message("a"))
+    b = sm.append_message(_assistant_message("b"))
+    sm.append_message(_user_message("c"))  # branched-off entry, not included
+    original_id = sm.get_session_id()
+
+    new_file = sm.create_branched_session(b)
+    assert new_file is None  # in-memory mode
+
+    # New session id, fresh header, but the path entries survive.
+    assert sm.get_session_id() != original_id
+    entries = sm.get_entries()
+    ids = [e.get("id") for e in entries]
+    assert a in ids
+    assert b in ids
+    # The previous leaf-only "c" message must NOT be in the new branch.
+    assert all(e.get("id") != "c" for e in entries)
+
+
+def test_create_branched_session_preserves_labels_for_path() -> None:
+    sm = SessionManager.in_memory()
+    a = sm.append_message(_user_message("a"))
+    b = sm.append_message(_assistant_message("b"))
+    sm.append_label_change(a, "important")
+
+    sm.create_branched_session(b)
+
+    assert sm.get_label(a) == "important"
+    assert any(e.get("type") == "label" for e in sm.get_entries())
+
+
+def test_create_branched_session_drops_label_for_pruned_entry() -> None:
+    sm = SessionManager.in_memory()
+    a = sm.append_message(_user_message("a"))
+    b = sm.append_message(_assistant_message("b"))
+    pruned = sm.append_message(_user_message("c"))
+    sm.append_label_change(pruned, "leaf-label")
+
+    # Verify label is set BEFORE branching.
+    assert sm.get_label(pruned) == "leaf-label"
+
+    # Fork at b — pruned ("c") and its label entry must both vanish.
+    sm.create_branched_session(b)
+
+    new_ids = {e.get("id") for e in sm.get_entries()}
+    assert pruned not in new_ids
+    assert sm.get_label(pruned) is None
+    # The other path entries are still there.
+    assert a in new_ids
+    assert b in new_ids
+
+
+def test_create_branched_session_invalid_id_raises() -> None:
+    sm = SessionManager.in_memory()
+    with pytest.raises(ValueError, match="not found"):
+        sm.create_branched_session("ghost-id")
+
+
+def test_create_branched_session_persisted_with_assistant_writes_file(tmp_path: Path) -> None:
+    sessions = tmp_path / "sessions"
+    sm = SessionManager.create("/work", session_dir=str(sessions))
+    sm.append_message(_user_message("a"))
+    leaf = sm.append_message(_assistant_message("b"))
+
+    new_file = sm.create_branched_session(leaf)
+    assert new_file is not None
+    assert Path(new_file).exists()
+    # Header carries the parent-session pointer.
+    raw = json.loads(Path(new_file).read_text(encoding="utf-8").splitlines()[0])
+    assert raw["type"] == "session"
+    assert "parentSession" in raw
+
+
+def test_create_branched_session_persisted_no_assistant_defers_write(tmp_path: Path) -> None:
+    sessions = tmp_path / "sessions"
+    sm = SessionManager.create("/work", session_dir=str(sessions))
+    leaf = sm.append_message(_user_message("just a question"))
+
+    new_file = sm.create_branched_session(leaf)
+    assert new_file is not None
+    # No assistant message yet → file write is deferred to first persist.
+    assert not Path(new_file).exists()
+    # Adding an assistant should now flush the entire branched session.
+    sm.append_message(_assistant_message("here you go"))
+    assert Path(new_file).exists()
+    lines = Path(new_file).read_text(encoding="utf-8").strip().splitlines()
+    types = [json.loads(line).get("type") for line in lines]
+    assert types[0] == "session"
+    assert "message" in types
+
+
+# ---------------------------------------------------------------------------
+# Cross-version JSONL compatibility — TS-written sessions must load
+# losslessly into the Python SessionManager (and vice versa for the
+# camelCase keys we emit).
+# ---------------------------------------------------------------------------
+
+
+_TS_FIXTURE_JSONL = (
+    '{"type":"session","version":3,"id":"sess-1","timestamp":"2024-01-01T00:00:00.000Z","cwd":"/tmp/work"}\n'
+    '{"type":"message","id":"e1","parentId":null,"timestamp":"2024-01-01T00:00:01.000Z",'
+    '"message":{"role":"user","content":"hello","timestamp":1}}\n'
+    '{"type":"message","id":"e2","parentId":"e1","timestamp":"2024-01-01T00:00:02.000Z",'
+    '"message":{"role":"assistant","content":[{"type":"text","text":"hi back"}],'
+    '"provider":"openai","model":"gpt-4o-mini","api":"openai-completions",'
+    '"usage":{"input":5,"output":3,"cacheRead":0,"cacheWrite":0,"totalTokens":8,'
+    '"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},'
+    '"stopReason":"stop","timestamp":2}}\n'
+    '{"type":"thinking_level_change","id":"e3","parentId":"e2","timestamp":"2024-01-01T00:00:03.000Z","thinkingLevel":"high"}\n'
+    '{"type":"model_change","id":"e4","parentId":"e3","timestamp":"2024-01-01T00:00:04.000Z","provider":"anthropic","modelId":"claude-sonnet-4-5"}\n'
+    '{"type":"label","id":"e5","parentId":"e4","timestamp":"2024-01-01T00:00:05.000Z","targetId":"e2","label":"important"}\n'
+)
+
+
+def test_loads_ts_written_session_jsonl_losslessly(tmp_path: Path) -> None:
+    """A JSONL file written by the TS implementation must load identically."""
+    fixture = tmp_path / "ts_session.jsonl"
+    fixture.write_text(_TS_FIXTURE_JSONL, encoding="utf-8")
+
+    sm = SessionManager.open(str(fixture), cwd_override="/tmp/work")
+
+    header = sm.get_header()
+    assert header is not None
+    assert header.id == "sess-1"
+    assert header.cwd == "/tmp/work"
+    assert header.version == 3
+
+    entries = sm.get_entries()
+    assert [e.get("id") for e in entries] == ["e1", "e2", "e3", "e4", "e5"]
+    assert entries[2]["thinkingLevel"] == "high"
+    assert entries[3]["modelId"] == "claude-sonnet-4-5"
+    assert sm.get_label("e2") == "important"
+
+    # The reconstructed branch (last leaf back to root) should be linear.
+    branch = sm.get_branch()
+    assert [e.get("id") for e in branch] == ["e1", "e2", "e3", "e4", "e5"]
+
+
+def test_python_written_session_uses_camelcase_keys(tmp_path: Path) -> None:
+    """Sessions we write must be readable by the TS implementation byte-for-byte."""
+    sessions = tmp_path / "sessions"
+    sm = SessionManager.create("/tmp/work", session_dir=str(sessions))
+    sm.append_message(_user_message("hello"))
+    sm.append_message(_assistant_message("hi"))
+    sm.append_thinking_level_change("high")
+    sm.append_model_change("anthropic", "claude-sonnet-4-5")
+    last = sm.get_leaf_id()
+    assert last is not None
+    sm.append_label_change(last, "marked")
+
+    file = sm.get_session_file()
+    assert file is not None
+    raw = Path(file).read_text(encoding="utf-8")
+
+    # Header keys
+    header_line = json.loads(raw.splitlines()[0])
+    assert header_line["type"] == "session"
+    assert header_line["version"] == CURRENT_SESSION_VERSION
+
+    # Confirm none of the entries leak Python snake_case JSON keys onto
+    # disk. We check for the quoted ``"<key>":`` form so we don't trip
+    # over legitimate snake_case TS entry *types* like
+    # ``"thinking_level_change"``.
+    forbidden_keys = (
+        '"parent_id":',
+        '"thinking_level":',
+        '"model_id":',
+        '"target_id":',
+        '"first_kept_entry_id":',
+        '"from_id":',
+        '"from_hook":',
+    )
+    for token in forbidden_keys:
+        assert token not in raw, f"snake_case JSON key {token!r} leaked into on-disk JSONL"
+
+    # Sample assertions on actual camelCase keys we emit.
+    assert "parentId" in raw
+    assert "thinkingLevel" in raw
+    assert "modelId" in raw
+    assert "targetId" in raw
+
+
+def test_round_trip_python_to_python(tmp_path: Path) -> None:
+    """Write a session, reopen it, assert structural equality."""
+    sessions = tmp_path / "sessions"
+    sm1 = SessionManager.create("/tmp/work", session_dir=str(sessions))
+    a = sm1.append_message(_user_message("a"))
+    b = sm1.append_message(_assistant_message("b"))
+    sm1.append_label_change(a, "tag-a")
+
+    file = sm1.get_session_file()
+    assert file is not None
+
+    sm2 = SessionManager.open(file, cwd_override="/tmp/work")
+    ids = [e.get("id") for e in sm2.get_entries()]
+    assert a in ids
+    assert b in ids
+    assert sm2.get_label(a) == "tag-a"
+    assert sm2.get_session_id() == sm1.get_session_id()

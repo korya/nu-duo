@@ -1055,6 +1055,95 @@ class SessionManager:
         self._append_entry(entry)
         return entry["id"]
 
+    def create_branched_session(self, leaf_id: str) -> str | None:
+        """Fork the path ending at ``leaf_id`` into a brand-new session.
+
+        Direct port of TS ``createBranchedSession``. Walks up from
+        ``leaf_id`` to the root, drops any intermediate ``label`` entries
+        from the path itself, then assembles a new session whose entries
+        are ``[header, ...path_without_labels, ...recreated_label_entries]``.
+        Labels are recreated only for entries that survive in the new
+        path (matching TS behaviour).
+
+        In persisted mode the new file is only flushed eagerly when the
+        forked path already contains an assistant message — otherwise we
+        defer the first write to ``_persist_entry`` so a forked-but-empty
+        session does not leave a duplicate header on disk. Returns the
+        new file path (persisted mode) or ``None`` (in-memory).
+        """
+        previous_session_file = self._session_file
+        path = self.get_branch(leaf_id)
+        if not path:
+            raise ValueError(f"Entry {leaf_id} not found")
+
+        path_without_labels = [e for e in path if e.get("type") != "label"]
+
+        new_session_id = uuid.uuid4().hex
+        timestamp = _now_iso()
+        file_timestamp = timestamp.replace(":", "-").replace(".", "-")
+
+        header: FileEntry = {
+            "type": "session",
+            "version": CURRENT_SESSION_VERSION,
+            "id": new_session_id,
+            "timestamp": timestamp,
+            "cwd": self._cwd,
+        }
+        if self._persist and previous_session_file:
+            header["parentSession"] = previous_session_file
+
+        # Collect labels for entries that survive in the new path.
+        path_entry_ids: set[str] = {e["id"] for e in path_without_labels if isinstance(e.get("id"), str)}
+        labels_to_write: list[tuple[str, str, str]] = []
+        for target_id, label in self._labels_by_id.items():
+            if target_id in path_entry_ids:
+                labels_to_write.append((target_id, label, self._label_timestamps_by_id.get(target_id, "")))
+
+        # Recreate the label entries chained off the last path entry.
+        last_entry_id: str | None = path_without_labels[-1].get("id") if path_without_labels else None
+        parent_id = last_entry_id if isinstance(last_entry_id, str) else None
+        label_entries: list[SessionEntry] = []
+        used_ids: set[str] = set(path_entry_ids)
+        for target_id, label, label_timestamp in labels_to_write:
+            label_id = _generate_id(used_ids)
+            label_entry: SessionEntry = {
+                "type": "label",
+                "id": label_id,
+                "parentId": parent_id,
+                "timestamp": label_timestamp,
+                "targetId": target_id,
+                "label": label,
+            }
+            used_ids.add(label_id)
+            label_entries.append(label_entry)
+            parent_id = label_id
+
+        if self._persist:
+            new_session_file = str(Path(self.get_session_dir()) / f"{file_timestamp}_{new_session_id}.jsonl")
+            self._file_entries = [header, *path_without_labels, *label_entries]
+            self._session_id = new_session_id
+            self._session_file = new_session_file
+            self._build_index()
+
+            has_assistant = any(
+                e.get("type") == "message"
+                and isinstance(e.get("message"), dict)
+                and e["message"].get("role") == "assistant"
+                for e in self._file_entries
+            )
+            if has_assistant:
+                self._rewrite_file()
+                self._flushed = True
+            else:
+                self._flushed = False
+            return new_session_file
+
+        # In-memory: just swap the entries in place.
+        self._file_entries = [header, *path_without_labels, *label_entries]
+        self._session_id = new_session_id
+        self._build_index()
+        return None
+
 
 __all__ = [
     "CURRENT_SESSION_VERSION",
