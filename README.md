@@ -14,7 +14,7 @@ prefixed with `nu-` (PyPI distribution name) / `nu_` (Python import name):
 | `@mariozechner/pi-tui` | `nu-tui` | partial — pure utilities (UndoStack, KillRing, fuzzy, keys, keybindings); Textual-backed renderer + components deferred until consumed by interactive mode |
 | `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — four core tools (read, write, edit, bash) with shared helpers; session manager, compaction, extensions, agent_session, modes/print, modes/rpc, CLI entry point still deferred |
 | `@mariozechner/pi-mom` | `nu-mom` | scaffold only |
-| `@mariozechner/pi-pods` | `nu-pods` | scaffold only |
+| `@mariozechner/pi-pods` | `nu-pods` | done — types, config, ssh wrappers, model catalogue, all commands (setup/start/stop/list/logs/models/agent), `nu-pods` CLI; `agent` subcommand resolves invocations but the actual coding-agent launcher is stubbed pending a programmatic spawn entrypoint in nu-coding-agent |
 | `@mariozechner/pi-web-ui` | `nu-web-ui` | scaffold only |
 
 ## Design goals
@@ -75,6 +75,128 @@ API keys are loaded from a top-level `.env` file via `python-dotenv` (see
 `ANTHROPIC_API_KEY` (or `ANTHROPIC_OAUTH_TOKEN`) for the Anthropic ones.
 Override the model id used by `one-shot.py` / `interactive.py` via
 `NU_SAMPLE_OPENAI_MODEL` / `NU_SAMPLE_ANTHROPIC_MODEL`.
+
+## Deviations from pi-mono
+
+The port aims for maximum fidelity — same package boundaries, same
+abstraction names, same on-disk formats — but a handful of conscious
+deviations were unavoidable or actively beneficial. Each is listed
+below so the upstream blog posts and AGENTS.md still resolve cleanly,
+and so reviewers know which differences are intentional rather than
+oversights.
+
+### Workspace-wide
+
+- **Naming.** The Python distribution is branded *Nu-duo*. Upstream
+  package `pi-X` becomes `nu-X` (PyPI distribution name) and `nu_X`
+  (Python import name); class names are kept verbatim, function names
+  switch from `camelCase` to `snake_case` per Python convention. File
+  names map 1:1 with the TS originals (e.g. `agent-loop.ts` →
+  `agent_loop.py`) so cross-references in the upstream blog posts
+  still locate the right module.
+- **Schema validation.** TS uses TypeBox + ajv to declare tool
+  parameter schemas; the Python port uses Pydantic v2 dataclasses /
+  models and emits JSON Schema via `model_json_schema()`. The wire
+  format and the LLM-visible schemas are identical; only the
+  authoring API differs.
+- **Async model.** TS `AsyncIterable<Event>` becomes Python
+  `AsyncIterator[Event]`; subscriber callbacks become async
+  callables on an `EventStream`/`EventBus`. Same push/end/iter
+  semantics, idiomatic asyncio surface.
+
+### `nu-ai`
+
+- **Provider scope.** Only Anthropic, OpenAI Chat Completions, Google
+  Generative AI, Ollama, and the faux test provider are ported so
+  far. OpenAI Responses, Bedrock, Mistral, Vertex, Cerebras, xAI,
+  z.ai, OpenRouter, Together, Fireworks, DeepSeek, Nvidia,
+  Hyperbolic, Lambda Labs, Sambanova, Novita, and the LM Studio
+  client are still deferred. Provider-specific OAuth flows
+  (Anthropic, Google, etc.) are also pending.
+- **`models_generated.py`.** The catalogue snapshot is hand-maintained
+  for now; the port of the `generate-models.ts` script that
+  refreshes it from provider APIs is deferred.
+
+### `nu-tui`
+
+- **Implementation strategy.** This is the one package where the
+  deviation is *implementation-level*, not API-level. Upstream pi-tui
+  is a hand-rolled differential renderer; nu-tui will eventually
+  rebuild the public API on top of [Textual](https://textual.textualize.io/)
+  rather than reimplementing the diff engine. Currently only the
+  pure-logic utilities (`UndoStack`, `KillRing`, `Fuzzy`, `Keys`,
+  `Keybindings`) are ported; the Textual-backed renderer + components
+  land alongside `nu_coding_agent` interactive mode.
+
+### `nu-coding-agent`
+
+- **Tool authoring.** Tool parameter schemas are Pydantic models, not
+  TypeBox `Type.Object` literals (see workspace-wide note above). The
+  resulting JSON Schemas are identical, but the authoring code differs.
+- **Subprocess execution.** The Bash tool uses `asyncio.create_subprocess_exec`
+  with the same timeout / cancellation semantics as the TS
+  `child_process.spawn`-based version. Output capture, exit code
+  handling, and signal propagation match.
+- **Coverage policy.** `nu_coding_agent/cli.py` is excluded from
+  coverage as a thin glue layer (matches the `nu_pods/cli.py` policy).
+  The library code stays under the 90 % per-package gate.
+- **Deferred surface area.** Session manager, compaction,
+  branch-summarization, extensions (entry-point based instead of npm
+  packages), skills, agent_session_runtime, modes/rpc, modes/interactive,
+  and the full set of CLI flags are still deferred. The minimal `nu`
+  CLI currently supports `--print` mode only.
+
+### `nu-pods`
+
+- **SSH transport.** We shell out to the user's local `ssh` / `scp`
+  binaries via `asyncio.create_subprocess_exec` instead of pulling in
+  `asyncssh`. This matches the TS version's `child_process.spawn`
+  approach exactly and means existing host configs, jump hosts,
+  ssh-agent, and key files keep working unchanged. (The original
+  port plan called for `asyncssh`; this was a deliberate change after
+  reading the upstream code.)
+- **Config location.** Config defaults to `~/.nu/pods.json` (override
+  via `NU_PODS_CONFIG_DIR`) instead of the upstream `~/.pi/pods.json`
+  (`PI_CONFIG_DIR`). The on-disk JSON shape is byte-compatible
+  (camelCase keys preserved), so a config file can be moved between
+  the two implementations without conversion.
+- **API key env var.** `NU_API_KEY` is read first; `PI_API_KEY` is
+  honored as a legacy fallback so existing pods setups keep working.
+- **Log streaming during `start`.** The TS implementation runs a
+  long-lived `tail -f` over SSH while watching for the
+  `Application startup complete` marker. The Python port runs a
+  bounded `tail -n 200` instead — full liveness monitoring requires
+  a streaming SSH subprocess that's hostile to unit testing, and the
+  observable behaviour (startup detection + classification of OOM /
+  engine init / runner exit failures, plus config rollback) is
+  identical for everything except the live progress bars during the
+  startup window. The decision is documented inline in
+  `commands/models.py`.
+- **`apply_memory_and_context` quirk.** Faithfully reproduces a TS
+  bug: the function strips `--gpu-memory-utilization` and
+  `--max-model-len` flag *names* by substring match only, leaving
+  any orphaned values behind. The bundled `models.json` configs
+  never pre-set these flags so it never bites in practice; the
+  fidelity is intentional and documented in a comment so the
+  next reader knows it's not an oversight.
+- **`nu-pods agent` launcher.** `build_invocation` resolves a
+  deployed model, picks the right `--api` (responses for `gpt-oss`
+  models, completions otherwise), and assembles a complete argv list,
+  but the default launcher raises `PodsError("not yet implemented")`.
+  A `set_launcher()` hook is exposed; it'll be wired into
+  `nu_coding_agent` once that package gains a programmatic agent-spawn
+  entrypoint.
+- **Bug fix.** `parse_context_size`: a naive transliteration of the
+  TS `_CONTEXT_SIZES.get(value.lower(), int(value))` would crash on
+  `"4k"` because Python's `dict.get` eagerly evaluates the default
+  argument. Fixed to a two-step lookup.
+
+### Deferred packages
+
+`nu-mom`, `nu-web-ui` are scaffolds only. Their port plans (Slack
+bolt + Docker SDK for mom, FastAPI backend + vendored Lit frontend
+for web-ui) are documented in the porting plan but no production
+code has been written yet.
 
 ## Project layout
 
