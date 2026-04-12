@@ -207,6 +207,10 @@ class AgentSession:
     def session_manager(self) -> SessionManager:
         return self._session_manager
 
+    def set_session_manager(self, sm: SessionManager) -> None:
+        """Replace the session manager (used by runtime for switch/fork)."""
+        self._session_manager = sm
+
     @property
     def model_registry(self) -> ModelRegistry:
         return self._model_registry

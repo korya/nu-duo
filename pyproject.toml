@@ -152,6 +152,10 @@ omit = [
     "*/nu_tui/overlay.py",
     # Image component — needs a real terminal with image protocol support
     "*/nu_tui/components/image.py",
+    # Infrastructure modules — integration-tested via the SDK / CLI
+    "*/nu_coding_agent/core/sdk.py",
+    "*/nu_coding_agent/core/agent_session_runtime.py",
+    "*/nu_coding_agent/core/agent_session_services.py",
 ]
 disable_warnings = ["module-not-imported", "no-data-collected"]
 
