@@ -1,32 +1,31 @@
-"""Minimum viable interactive REPL — Phase 5.6 skeleton.
+"""Interactive REPL for ``nu`` — Phase 5.7 (streaming + markdown + compaction + extensions).
 
-This is **not** a port of the upstream 4749-LoC ``interactive-mode.ts``.
-It's a pragmatic skeleton that gives ``nu`` a working interactive mode
-backed by Textual, so the full rendering pipeline and component library
-from nu_tui can be layered on iteratively.
+Textual-based terminal UI. Improvements over the Phase 5.6 skeleton:
 
-What works in this skeleton:
+* **Streaming text deltas** — assistant text renders live as the LLM
+  produces it via ``message_update`` events carrying ``text_delta``.
+* **Rich Markdown rendering** — each completed assistant message is
+  re-rendered through Rich Markdown for headings, code blocks (with
+  syntax highlighting), bold, italic, lists, etc.
+* **Auto-compaction** — after each turn, ``should_compact()`` is
+  checked; when true, ``session.compact()`` runs in the background
+  and a ``[compacted]`` indicator is shown.
+* **Extension hooks** — the CLI wiring creates the AgentSession with
+  an ``extension_runner`` when extensions are loaded, so lifecycle
+  hooks (session_start, agent_start/end, message_start/update/end,
+  tool_execution_start/end, session_shutdown) fire during interactive
+  turns.
+* **Slash commands** — ``/exit``, ``/model``, ``/compact``, ``/clear``,
+  ``/session``, ``/help`` (documented in the input placeholder).
+* **Thinking indicator** — a ``⠋ Thinking...`` Loader widget appears
+  while the agent is streaming and disappears when the turn ends.
 
-* A Textual app with a header (model info), a scrollable message area,
-  and a text input at the bottom.
-* User submits a prompt → ``AgentSession.prompt()`` streams events →
-  assistant text is rendered as a new message widget → input is
-  re-enabled.
-* Tool calls are shown as ``[tool] name(args)`` lines.
-* Errors surface as red text in the message area.
-* Ctrl-C / ``/exit`` exits the app.
-* ``/model`` shows the current model.
+Still deferred:
 
-What's deferred to follow-up slices:
-
-* The nu_tui component tree (upstream renders via Container/Component;
-  this skeleton renders via Textual widgets directly).
-* Session selectors, theme selectors, model pickers.
-* Overlay dialogs (login, extensions, settings).
-* Slash command expansion (only ``/exit`` and ``/model`` work).
-* Markdown rendering of assistant messages (currently plain text with
-  a dim style; Rich Markdown can be layered in).
-* Streaming text deltas (currently waits for the full response).
+* nu_tui component tree wiring (renders via Textual widgets directly).
+* Session selectors, model pickers, theme pickers, settings panels.
+* Overlay dialogs (login, extensions).
+* Full slash command expansion from upstream.
 """
 
 from __future__ import annotations
@@ -34,6 +33,7 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
+from rich.markdown import Markdown as RichMarkdown
 from rich.text import Text as RichText
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -53,6 +53,35 @@ class _MessageWidget(Static):
         margin: 0 0 1 0;
     }
     """
+
+
+class _StreamingWidget(Static):
+    """Widget that accumulates streaming text deltas and re-renders live."""
+
+    DEFAULT_CSS = """
+    _StreamingWidget {
+        padding: 0 1;
+        margin: 0 0 1 0;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__("")
+        self._chunks: list[str] = []
+
+    def append_delta(self, delta: str) -> None:
+        """Append a text delta and refresh the display."""
+        self._chunks.append(delta)
+        self.update(RichText("".join(self._chunks)))
+
+    def get_text(self) -> str:
+        return "".join(self._chunks)
+
+    def finalize_as_markdown(self) -> None:
+        """Re-render the accumulated text as Rich Markdown."""
+        text = self.get_text()
+        if text.strip():
+            self.update(RichMarkdown(text, code_theme="monokai"))
 
 
 class InteractiveApp(App[None]):
@@ -84,6 +113,12 @@ class InteractiveApp(App[None]):
     .error-message {
         color: red;
     }
+    .info-message {
+        color: $text-muted;
+    }
+    .thinking-indicator {
+        color: $text-muted;
+    }
     """
 
     BINDINGS = [  # noqa: RUF012 — Textual convention
@@ -95,13 +130,18 @@ class InteractiveApp(App[None]):
         self._session = session
         self._quiet = quiet
         self._working = False
+        self._streaming_widget: _StreamingWidget | None = None
+        self._thinking_widget: Static | None = None
 
     def compose(self) -> ComposeResult:
         model = self._session.model
         model_name = model.id if model else "no model"
         yield Header(show_clock=False)
         yield VerticalScroll(id="message-area")
-        yield Input(placeholder=f"Message ({model_name})...", id="prompt-input")
+        yield Input(
+            placeholder=f"Message ({model_name}) — /help for commands",
+            id="prompt-input",
+        )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -109,28 +149,70 @@ class InteractiveApp(App[None]):
         inp = self.query_one("#prompt-input", Input)
         inp.focus()
 
+    # ------------------------------------------------------------------
+    # Slash commands
+    # ------------------------------------------------------------------
+
+    _HELP_TEXT = """\
+Available commands:
+  /help     — show this help
+  /exit     — exit the REPL
+  /model    — show the current model
+  /compact  — trigger context compaction
+  /clear    — clear the message area
+  /session  — show session file path
+"""
+
+    def _handle_slash_command(self, text: str) -> bool:
+        """Process a slash command. Returns True if handled."""
+        cmd = text.split(maxsplit=1)[0].lower() if text else ""
+        if cmd == "/exit":
+            self.exit()
+            return True
+        if cmd == "/help":
+            self._add_info(self._HELP_TEXT)
+            return True
+        if cmd == "/model":
+            model = self._session.model
+            self._add_info(f"Model: {model.id if model else 'none'}")
+            return True
+        if cmd == "/compact":
+            self._run_compact()
+            return True
+        if cmd == "/clear":
+            area = self.query_one("#message-area", VerticalScroll)
+            area.remove_children()
+            return True
+        if cmd == "/session":
+            sf = self._session.session_manager.get_session_file()
+            self._add_info(f"Session: {sf or '(in-memory)'}")
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Submit
+    # ------------------------------------------------------------------
+
     @on(Input.Submitted)
     def handle_submit(self, event: Input.Submitted) -> None:
         text = event.value.strip()
         if not text:
             return
 
-        # Slash commands
-        if text == "/exit":
-            self.exit()
-            return
-        if text == "/model":
-            model = self._session.model
-            self._add_message(f"[model] {model.id if model else 'none'}", "tool-message")
-            event.input.value = ""
+        event.input.value = ""
+
+        if text.startswith("/") and self._handle_slash_command(text):
             return
 
         if self._working:
             return
 
-        event.input.value = ""
         self._add_message(f"> {text}", "user-message")
         self._run_prompt(text)
+
+    # ------------------------------------------------------------------
+    # Prompt execution with streaming
+    # ------------------------------------------------------------------
 
     @work(thread=False)
     async def _run_prompt(self, text: str) -> None:
@@ -138,44 +220,56 @@ class InteractiveApp(App[None]):
         inp = self.query_one("#prompt-input", Input)
         inp.disabled = True
 
-        # Collect events for display
-        events_text: list[str] = []
+        # Show thinking indicator
+        self._show_thinking()
+
+        # Create streaming widget for the assistant response
+        self._streaming_widget = _StreamingWidget()
+        self._streaming_widget.add_class("assistant-message")
+        area = self.query_one("#message-area", VerticalScroll)
+        area.mount(self._streaming_widget)
 
         def listener(event: Any) -> None:
             event_type = event["type"]
+
+            # Stream text deltas live
+            if event_type == "message_update":
+                inner = event.get("assistant_message_event")
+                if inner is not None:
+                    inner_type = getattr(inner, "type", None)
+                    if inner_type == "text_delta" and self._streaming_widget is not None:
+                        delta = getattr(inner, "delta", "")
+                        if delta:
+                            self.call_from_thread(self._streaming_widget.append_delta, delta)
+
+            # Show tool calls
             if event_type == "tool_execution_end" and not self._quiet:
                 name = event.get("tool_name", "?")
                 is_error = event.get("is_error", False)
                 status = "error" if is_error else "ok"
-                events_text.append(f"[tool {status}] {name}")
+                self.call_from_thread(self._add_message, f"[tool {status}] {name}", "tool-message")
 
         unsub = self._session.subscribe(listener)
 
         try:
             await self._session.prompt(text)
 
-            # Display tool calls
-            for tool_line in events_text:
-                self._add_message(tool_line, "tool-message")
+            # Finalize: re-render as markdown
+            if self._streaming_widget is not None:  # pyright: ignore[reportUnnecessaryComparison]
+                self._streaming_widget.finalize_as_markdown()
+                self._streaming_widget.scroll_visible()
 
-            # Display assistant response
+            # Check for error stop reason
             messages = self._session.agent.state.messages
             if messages:
                 last = messages[-1]
-                role = getattr(last, "role", None)
-                if role == "assistant":
-                    content = getattr(last, "content", [])
-                    text_parts = []
-                    for block in content:
-                        block_type = getattr(block, "type", None)
-                        if block_type == "text":
-                            text_parts.append(getattr(block, "text", ""))
-                    if text_parts:
-                        self._add_message("\n".join(text_parts), "assistant-message")
-                    stop_reason = getattr(last, "stop_reason", None)
-                    if stop_reason == "error":
-                        err = getattr(last, "error_message", None) or "unknown error"
-                        self._add_message(f"[error] {err}", "error-message")
+                if getattr(last, "stop_reason", None) == "error":
+                    err = getattr(last, "error_message", None) or "unknown error"
+                    self._add_message(f"[error] {err}", "error-message")
+
+            # Auto-compaction check
+            if self._session.should_compact():
+                self._run_compact()
 
         except KeyboardInterrupt:
             self._add_message("[interrupted]", "error-message")
@@ -183,16 +277,57 @@ class InteractiveApp(App[None]):
             self._add_message(f"[error] {exc}", "error-message")
         finally:
             unsub()
+            self._streaming_widget = None
+            self._hide_thinking()
             self._working = False
             inp.disabled = False
             inp.focus()
 
+    # ------------------------------------------------------------------
+    # Compaction
+    # ------------------------------------------------------------------
+
+    @work(thread=False)
+    async def _run_compact(self) -> None:
+        try:
+            result = await self._session.compact()
+            if result is not None:
+                self._add_info(f"[compacted] {result.tokens_before} tokens → summarized")
+        except Exception as exc:
+            self._add_message(f"[compaction error] {exc}", "error-message")
+
+    # ------------------------------------------------------------------
+    # Thinking indicator
+    # ------------------------------------------------------------------
+
+    def _show_thinking(self) -> None:
+        if self._thinking_widget is not None:
+            return
+        self._thinking_widget = Static("⠋ Thinking...")
+        self._thinking_widget.add_class("thinking-indicator")
+        area = self.query_one("#message-area", VerticalScroll)
+        area.mount(self._thinking_widget)
+        self._thinking_widget.scroll_visible()
+
+    def _hide_thinking(self) -> None:
+        if self._thinking_widget is not None:
+            self._thinking_widget.remove()
+            self._thinking_widget = None
+
+    # ------------------------------------------------------------------
+    # Message rendering helpers
+    # ------------------------------------------------------------------
+
     def _add_message(self, text: str, css_class: str) -> None:
         area = self.query_one("#message-area", VerticalScroll)
-        widget = _MessageWidget(RichText.from_ansi(text) if "\033[" in text else text)
+        content: Any = RichText.from_ansi(text) if "\033[" in text else text
+        widget = _MessageWidget(content)
         widget.add_class(css_class)
         area.mount(widget)
         widget.scroll_visible()
+
+    def _add_info(self, text: str) -> None:
+        self._add_message(text, "info-message")
 
 
 async def run_interactive_mode(session: AgentSession, *, quiet: bool = False) -> int:

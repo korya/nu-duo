@@ -581,7 +581,11 @@ async def async_main(argv: list[str]) -> int:
 
 
 async def _run_interactive_mode(args: _Args, model: Model) -> int:
-    """Launch the interactive REPL."""
+    """Launch the interactive REPL with extension support."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionRunner,
+        discover_and_load_extensions,
+    )
     from nu_coding_agent.modes.interactive import run_interactive_mode  # noqa: PLC0415
 
     cwd = await asyncio.to_thread(_resolve_cwd_sync, args.cwd)
@@ -607,13 +611,28 @@ async def _run_interactive_mode(args: _Args, model: Model) -> int:
     model_registry = ModelRegistry.in_memory(auth_storage)
     model_registry._models.append(model)  # type: ignore[attr-defined]
     session_manager = _build_session_manager(args, cwd)
+
+    # Discover and load extensions for the interactive session.
+    ext_result = await discover_and_load_extensions()
+    runner: ExtensionRunner | None = None
+    if ext_result.extensions:
+        runner = ExtensionRunner.create(
+            extensions=ext_result.extensions,
+            runtime=ext_result.runtime,
+            cwd=cwd,
+        )
+
     session = AgentSession.create(
         agent=agent,
         session_manager=session_manager,
         model_registry=model_registry,
         auth_storage=auth_storage,
         cwd=cwd,
+        extension_runner=runner,
     )
+
+    # Merge extension-registered tools into the agent's tool list.
+    session.apply_extension_tools()
 
     try:
         return await run_interactive_mode(session, quiet=args.quiet)
