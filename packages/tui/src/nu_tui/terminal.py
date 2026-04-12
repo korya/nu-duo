@@ -91,5 +91,73 @@ class Terminal:
         """``True`` iff running inside Termux on Android."""
         return bool(os.environ.get("TERMUX_VERSION"))
 
+    # ------------------------------------------------------------------
+    # Extended capability detection (Phase 5.10)
+    # ------------------------------------------------------------------
+
+    def supports_true_color(self) -> bool:
+        """Best-effort detection of 24-bit true-color support.
+
+        Checks ``COLORTERM=truecolor`` / ``COLORTERM=24bit`` env vars,
+        plus terminal programs known to support true color.
+        """
+        colorterm = os.environ.get("COLORTERM", "").lower()
+        if colorterm in ("truecolor", "24bit"):
+            return True
+        term_program = os.environ.get("TERM_PROGRAM", "").lower()
+        return term_program in ("iterm2.app", "iterm2", "wezterm", "kitty", "alacritty", "hyper")
+
+    def supports_mouse(self) -> bool:
+        """``True`` if the terminal likely supports mouse events.
+
+        Most modern terminals do; we check for known exceptions
+        (e.g. dumb terminals, Emacs TERM=dumb).
+        """
+        term = os.environ.get("TERM", "")
+        if term in ("dumb", ""):
+            return False
+        return self.is_tty()
+
+    def supports_kitty_keyboard(self) -> bool:
+        """``True`` if the terminal supports the Kitty keyboard protocol.
+
+        The Kitty protocol provides unambiguous key reporting.
+        Supported by Kitty, WezTerm, and foot.
+        """
+        term_program = os.environ.get("TERM_PROGRAM", "").lower()
+        term = os.environ.get("TERM", "").lower()
+        return "kitty" in term or "kitty" in term_program or term_program in ("wezterm", "foot")
+
+    def supports_hyperlinks(self) -> bool:
+        """``True`` if the terminal supports OSC 8 hyperlinks.
+
+        Most modern terminals (iTerm2, WezTerm, Kitty, VTE-based
+        terminals, Windows Terminal) support clickable hyperlinks.
+        """
+        term_program = os.environ.get("TERM_PROGRAM", "").lower()
+        if term_program in ("iterm2.app", "iterm2", "wezterm", "kitty"):
+            return True
+        # VTE-based (GNOME Terminal, Tilix, etc.)
+        return bool(os.environ.get("VTE_VERSION"))
+
+    def supports_images(self) -> bool:
+        """``True`` if the terminal supports inline images.
+
+        Delegates to :func:`nu_tui.terminal_image.supports_inline_images`.
+        """
+        from nu_tui.terminal_image import supports_inline_images  # noqa: PLC0415
+
+        return supports_inline_images()
+
+    @property
+    def rows(self) -> int:
+        """Alias for :meth:`get_rows` used by the TUI component."""
+        return self.get_rows()
+
+    @property
+    def columns(self) -> int:
+        """Alias for :meth:`get_columns`."""
+        return self.get_columns()
+
 
 __all__ = ["Terminal", "TerminalSize"]

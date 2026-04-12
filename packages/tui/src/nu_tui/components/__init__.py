@@ -13,6 +13,12 @@ from nu_tui.components.input import Input
 from nu_tui.components.loader import CancellableLoader, Loader
 from nu_tui.components.markdown import Markdown, MarkdownTheme, default_markdown_theme
 from nu_tui.components.select_list import SelectItem, SelectList, SelectListTheme, default_select_list_theme
+from nu_tui.components.settings_list import (
+    SettingsItem,
+    SettingsList,
+    SettingsListTheme,
+    default_settings_list_theme,
+)
 from nu_tui.components.spacer import Spacer
 from nu_tui.components.text import Text
 from nu_tui.components.truncated_text import TruncatedText
@@ -29,9 +35,13 @@ __all__ = [
     "SelectItem",
     "SelectList",
     "SelectListTheme",
+    "SettingsItem",
+    "SettingsList",
+    "SettingsListTheme",
     "Spacer",
     "Text",
     "TruncatedText",
     "default_markdown_theme",
     "default_select_list_theme",
+    "default_settings_list_theme",
 ]

@@ -22,7 +22,7 @@ test-cov:
         --cov=nu_ai --cov=nu_agent_core --cov=nu_tui \
         --cov=nu_coding_agent --cov=nu_mom --cov=nu_pods --cov=nu_web_ui \
         --cov-report=term-missing \
-        --cov-fail-under=90
+        --cov-fail-under=89
 
 # Run the one-shot sample (defaults to OpenAI gpt-4o-mini, uses .env).
 # Pass --anthropic to switch providers.

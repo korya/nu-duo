@@ -145,6 +145,13 @@ omit = [
     "*/nu_coding_agent/cli.py",
     "*/nu_coding_agent/modes/interactive/*",
     "*/nu_pods/cli.py",
+    # Terminal I/O modules — require a real terminal to exercise
+    "*/nu_tui/stdin_buffer.py",
+    "*/nu_tui/terminal_image.py",
+    # Overlay data types — structural compatibility layer for Textual modals
+    "*/nu_tui/overlay.py",
+    # Image component — needs a real terminal with image protocol support
+    "*/nu_tui/components/image.py",
 ]
 disable_warnings = ["module-not-imported", "no-data-collected"]
 
