@@ -83,6 +83,7 @@ ignore = [
 "**/tests/**" = ["PLR2004", "S101", "PT", "TC001", "TC002", "TC003", "PLC0415"]
 # nu_mom uses lazy imports extensively + async I/O with pathlib (acceptable)
 "**/nu_mom/**" = ["PLC0415", "ASYNC230", "ASYNC240", "RUF006", "B007", "B904"]
+"**/nu_web_ui/**" = ["PLC0415", "ASYNC109", "ASYNC230", "ASYNC240", "RUF006", "PLW0603", "SIM105"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -160,6 +161,8 @@ omit = [
     "*/nu_coding_agent/core/agent_session_services.py",
     # Slack bot — needs real Slack connection for integration tests
     "*/nu_mom/*",
+    # Web UI backend — needs FastAPI test client for integration tests
+    "*/nu_web_ui/*",
 ]
 disable_warnings = ["module-not-imported", "no-data-collected"]
 
