@@ -1731,6 +1731,273 @@ async def test_action_set_label_invoked_from_event_handler() -> None:
         registration.unregister()
 
 
+# ---------------------------------------------------------------------------
+# session_before_compact / session_compact hooks (sub-slice 5)
+# ---------------------------------------------------------------------------
+
+
+def _seed_compactable_session(session: AgentSession) -> None:
+    """Pad the session with enough messages that ``prepare_compaction`` returns a real preparation."""
+    sm = session.session_manager
+    for i in range(20):
+        sm.append_message({"role": "user", "content": "x" * 500, "timestamp": i})
+        sm.append_message(
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "x" * 500}],
+                "provider": "openai",
+                "model": "m",
+                "api": "openai-completions",
+                "usage": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "totalTokens": 0,
+                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0},
+                },
+                "stopReason": "stop",
+                "timestamp": i,
+            }
+        )
+
+
+async def test_compact_emits_session_compact_event() -> None:
+    """Standard compaction path fires ``session_compact`` after persisting."""
+    from nu_ai.providers.faux import faux_assistant_message  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+
+    seen: list[Any] = []
+
+    def register(api: ExtensionAPI) -> None:
+        def handler(event: Any, ctx: ExtensionContext) -> None:
+            seen.append(event)
+
+        api.on("session_compact", handler)
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        # Override compaction settings so prepare_compaction has work to do.
+        session._compaction_settings = CompactionSettings(  # pyright: ignore[reportPrivateUsage]
+            enabled=True, reserve_tokens=1000, keep_recent_tokens=300
+        )
+        _seed_compactable_session(session)
+        registration.set_responses(
+            [faux_assistant_message("structured summary"), faux_assistant_message("turn prefix")]
+        )
+
+        result = await session.compact()
+        assert result is not None
+        assert len(seen) == 1
+        event = seen[0]
+        assert event.type == "session_compact"
+        assert event.from_extension is False
+        assert event.compaction_entry is not None
+        assert event.compaction_entry.get("type") == "compaction"
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_before_compact_handler_can_cancel() -> None:
+    """A handler that returns ``cancel=True`` aborts the compaction entirely."""
+    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionContext,
+        SessionBeforeCompactResult,
+    )
+
+    def register(api: ExtensionAPI) -> None:
+        def handler(event: Any, ctx: ExtensionContext) -> SessionBeforeCompactResult:
+            return SessionBeforeCompactResult(cancel=True)
+
+        api.on("session_before_compact", handler)
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        session._compaction_settings = CompactionSettings(  # pyright: ignore[reportPrivateUsage]
+            enabled=True, reserve_tokens=1000, keep_recent_tokens=300
+        )
+        _seed_compactable_session(session)
+
+        result = await session.compact()
+        # Cancelled — no result, no LLM call (would have failed
+        # without a queued faux response).
+        assert result is None
+        # And no compaction entry was persisted.
+        entries = session.session_manager.get_entries()
+        assert not any(e.get("type") == "compaction" for e in entries)
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_before_compact_handler_can_provide_custom_result() -> None:
+    """A handler can supply a custom ``CompactionResult`` to bypass the LLM."""
+    from nu_coding_agent.core.compaction import (  # noqa: PLC0415
+        CompactionDetails,
+        CompactionResult,
+        CompactionSettings,
+    )
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionContext,
+        SessionBeforeCompactResult,
+    )
+
+    custom_seen: list[Any] = []
+
+    def register(api: ExtensionAPI) -> None:
+        def before(event: Any, ctx: ExtensionContext) -> SessionBeforeCompactResult:
+            return SessionBeforeCompactResult(
+                compaction=CompactionResult(
+                    summary="extension-supplied summary",
+                    first_kept_entry_id=event.preparation.first_kept_entry_id,
+                    tokens_before=event.preparation.tokens_before,
+                    details=CompactionDetails(read_files=[], modified_files=[]),
+                )
+            )
+
+        def after(event: Any, ctx: ExtensionContext) -> None:
+            custom_seen.append(event)
+
+        api.on("session_before_compact", before)
+        api.on("session_compact", after)
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        session._compaction_settings = CompactionSettings(  # pyright: ignore[reportPrivateUsage]
+            enabled=True, reserve_tokens=1000, keep_recent_tokens=300
+        )
+        _seed_compactable_session(session)
+
+        result = await session.compact()
+        assert result is not None
+        assert "extension-supplied summary" in result.summary
+        # No LLM was called (no faux response queued); the persisted
+        # compaction entry uses the extension's summary.
+        compactions = [e for e in session.session_manager.get_entries() if e.get("type") == "compaction"]
+        assert len(compactions) == 1
+        assert "extension-supplied summary" in compactions[0]["summary"]
+        # The session_compact handler observed from_extension=True.
+        assert len(custom_seen) == 1
+        assert custom_seen[0].from_extension is True
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_before_compact_handler_returning_none_falls_through() -> None:
+    """A handler that observes-only (returns None) leaves the standard path intact."""
+    from nu_ai.providers.faux import faux_assistant_message  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+
+    observed: list[Any] = []
+
+    def register(api: ExtensionAPI) -> None:
+        def handler(event: Any, ctx: ExtensionContext) -> None:
+            observed.append(event)
+
+        api.on("session_before_compact", handler)
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        session._compaction_settings = CompactionSettings(  # pyright: ignore[reportPrivateUsage]
+            enabled=True, reserve_tokens=1000, keep_recent_tokens=300
+        )
+        _seed_compactable_session(session)
+        registration.set_responses([faux_assistant_message("normal summary"), faux_assistant_message("turn prefix")])
+
+        result = await session.compact()
+        assert result is not None
+        assert "normal summary" in result.summary
+        # The handler observed the event with the prepared payload.
+        assert len(observed) == 1
+        assert observed[0].preparation is not None
+        assert isinstance(observed[0].branch_entries, list)
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_before_compact_dict_result_form_supported() -> None:
+    """Handlers may return a plain dict instead of a SessionBeforeCompactResult."""
+    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+
+    def register(api: ExtensionAPI) -> None:
+        def handler(event: Any, ctx: ExtensionContext) -> dict[str, Any]:
+            return {"cancel": True}  # plain-dict cancel
+
+        api.on("session_before_compact", handler)
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        session._compaction_settings = CompactionSettings(  # pyright: ignore[reportPrivateUsage]
+            enabled=True, reserve_tokens=1000, keep_recent_tokens=300
+        )
+        _seed_compactable_session(session)
+
+        result = await session.compact()
+        assert result is None  # dict-form cancel honored
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_compact_no_handlers_uses_standard_path() -> None:
+    """Sessions without compaction-extension handlers fall back to LLM compaction."""
+    from nu_ai.providers.faux import faux_assistant_message  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    def register(api: ExtensionAPI) -> None:
+        # Register a handler for an unrelated event so the runner has
+        # at least one extension loaded.
+        api.on("agent_start", lambda event, ctx: None)
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        session._compaction_settings = CompactionSettings(  # pyright: ignore[reportPrivateUsage]
+            enabled=True, reserve_tokens=1000, keep_recent_tokens=300
+        )
+        _seed_compactable_session(session)
+        registration.set_responses([faux_assistant_message("standard"), faux_assistant_message("turn prefix")])
+
+        result = await session.compact()
+        assert result is not None
+        assert "standard" in result.summary
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_normalize_before_compact_result_helper() -> None:
+    """The helper accepts dataclass, dict, and None forms."""
+    from nu_coding_agent.core.agent_session import (  # noqa: PLC0415
+        _normalize_before_compact_result,  # pyright: ignore[reportPrivateUsage]
+    )
+    from nu_coding_agent.core.extensions import SessionBeforeCompactResult  # noqa: PLC0415
+
+    assert _normalize_before_compact_result(None) == (False, None)
+    assert _normalize_before_compact_result({"cancel": True}) == (True, None)
+    assert _normalize_before_compact_result(SessionBeforeCompactResult(cancel=True)) == (True, None)
+    assert _normalize_before_compact_result({}) == (False, None)
+    sentinel = object()
+    cancel, compaction = _normalize_before_compact_result({"compaction": sentinel})
+    assert cancel is False
+    assert compaction is sentinel
+
+
 def test_translate_to_extension_event_unknown_returns_none() -> None:
     """Unknown agent event types return ``None`` (forward-compatible)."""
     from nu_coding_agent.core.agent_session import (  # noqa: PLC0415

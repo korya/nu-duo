@@ -439,23 +439,47 @@ class AgentSession:
         return prepare_compaction(path, self._compaction_settings)
 
     async def compact(self, custom_instructions: str | None = None) -> CompactionResult | None:
-        """Drive the LLM to summarise + persist a compaction entry."""
+        """Drive the LLM to summarise + persist a compaction entry.
+
+        Extension hooks fire around the LLM call:
+
+        * ``session_before_compact`` is emitted with the prepared
+          :class:`CompactionPreparation` and the current branch.
+          Handlers may return a :class:`SessionBeforeCompactResult`
+          (or a plain dict with ``cancel`` / ``compaction`` keys) to
+          either cancel the compaction entirely or supply a custom
+          :class:`CompactionResult` that bypasses the LLM
+          summarisation.
+
+        * ``session_compact`` is emitted after the compaction entry
+          is persisted, with ``from_extension=True`` if an extension
+          handler supplied the result.
+        """
         prep = self.prepare_compaction()
         if prep is None:
             return None
-        model = self._agent.state.model
-        if model.api == "unknown":
-            raise ValueError("No model selected on the agent.")
-        api_key = await self._auth_storage.get_api_key(model.provider)
-        if api_key is None:
-            raise ValueError(f'No API key for provider "{model.provider}" — cannot compact.')
-        result = await compact(
-            preparation=prep,
-            model=model,
-            api_key=api_key,
-            custom_instructions=custom_instructions,
-        )
-        self._session_manager.append_compaction(
+
+        # Hook 1: before_compact — handlers may cancel or replace.
+        result, from_extension = await self._dispatch_before_compact(prep, custom_instructions)
+        if result is None and from_extension is False:
+            # Standard path: drive the LLM via compact().
+            model = self._agent.state.model
+            if model.api == "unknown":
+                raise ValueError("No model selected on the agent.")
+            api_key = await self._auth_storage.get_api_key(model.provider)
+            if api_key is None:
+                raise ValueError(f'No API key for provider "{model.provider}" — cannot compact.')
+            result = await compact(
+                preparation=prep,
+                model=model,
+                api_key=api_key,
+                custom_instructions=custom_instructions,
+            )
+        elif result is None:
+            # Cancelled by an extension.
+            return None
+
+        compaction_id = self._session_manager.append_compaction(
             summary=result.summary,
             first_kept_entry_id=result.first_kept_entry_id,
             tokens_before=result.tokens_before,
@@ -468,7 +492,66 @@ class AgentSession:
                 else None
             ),
         )
+
+        # Hook 2: after-compact (informational) — handlers can read
+        # the persisted entry and react.
+        await self._dispatch_after_compact(compaction_id, from_extension)
+
         return result
+
+    async def _dispatch_before_compact(
+        self,
+        prep: CompactionPreparation,
+        custom_instructions: str | None,
+    ) -> tuple[CompactionResult | None, bool]:
+        """Fire ``session_before_compact``, merge results.
+
+        Returns ``(result, from_extension)``:
+
+        * ``(None, False)`` — no extension intervention; the standard
+          LLM compaction path runs.
+        * ``(None, True)`` — an extension cancelled the compaction;
+          ``compact()`` should bail out and return ``None``.
+        * ``(result, True)`` — an extension supplied a custom
+          :class:`CompactionResult` that should be persisted as-is.
+        """
+        if self._extension_runner is None or not self._extension_runner.has_handlers("session_before_compact"):
+            return None, False
+
+        from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+            SessionBeforeCompactEvent,
+        )
+
+        branch_entries = self._session_manager.get_branch()
+        results = await self._extension_runner.emit_with_results(
+            SessionBeforeCompactEvent(
+                preparation=prep,
+                branch_entries=branch_entries,
+                custom_instructions=custom_instructions,
+            )
+        )
+        for raw in results:
+            cancel, compaction = _normalize_before_compact_result(raw)
+            if cancel:
+                return None, True  # cancelled by extension
+            if compaction is not None:
+                return compaction, True  # extension supplied custom result
+        return None, False
+
+    async def _dispatch_after_compact(self, compaction_id: str, from_extension: bool) -> None:
+        """Fire ``session_compact`` so handlers can react to the persisted entry."""
+        if self._extension_runner is None or not self._extension_runner.has_handlers("session_compact"):
+            return
+
+        from nu_coding_agent.core.extensions import SessionCompactEvent  # noqa: PLC0415
+
+        compaction_entry = self._session_manager.get_entry(compaction_id)
+        await self._extension_runner.emit(
+            SessionCompactEvent(
+                compaction_entry=compaction_entry,
+                from_extension=from_extension,
+            )
+        )
 
     # ------------------------------------------------------------------
     # Session statistics
@@ -543,6 +626,26 @@ class AgentSession:
         """Use ``estimate_context_tokens`` from the compaction module."""
         context = self._session_manager.build_session_context()
         return estimate_context_tokens(context.messages).tokens
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _normalize_before_compact_result(raw: Any) -> tuple[bool, CompactionResult | None]:
+    """Coerce a ``session_before_compact`` handler's return value.
+
+    Handlers may return either a :class:`SessionBeforeCompactResult`
+    dataclass or a plain dict with ``cancel`` / ``compaction`` keys.
+    Returns ``(cancel, compaction)`` so the caller can decide what to
+    do without doing the type-check itself.
+    """
+    if raw is None:
+        return False, None
+    cancel = bool(getattr(raw, "cancel", None) or (raw.get("cancel") if isinstance(raw, dict) else False))
+    compaction = getattr(raw, "compaction", None) or (raw.get("compaction") if isinstance(raw, dict) else None)
+    return cancel, compaction
 
 
 # ---------------------------------------------------------------------------

@@ -270,6 +270,56 @@ class ExtensionRunner:
     # Event dispatch
     # ------------------------------------------------------------------
 
+    async def emit_with_results(self, event: LifecycleEvent | dict[str, Any]) -> list[Any]:
+        """Like :meth:`emit`, but collect non-``None`` handler return values.
+
+        Used by hooks where the handler can mutate the agent's
+        decision (``before_compact``, ``before_tree``, etc.). Mirrors
+        the TS runner pattern of "fire-and-collect-then-merge". Errors
+        are still captured per-handler so a misbehaving extension
+        can't take the rest down.
+        """
+        results: list[Any] = []
+        event_type = _event_type(event)
+        if not event_type:
+            return results
+        for extension in self._extensions:
+            handlers = extension.handlers.get(event_type)
+            if not handlers:
+                continue
+            ctx = self.create_context(extension.path)
+            for handler in list(handlers):
+                value = await self._invoke_handler_collect(extension, event_type, handler, event, ctx)
+                if value is not None:
+                    results.append(value)
+        return results
+
+    async def _invoke_handler_collect(
+        self,
+        extension: Extension,
+        event_type: str,
+        handler: ExtensionHandler,
+        event: LifecycleEvent | dict[str, Any],
+        ctx: ExtensionContext,
+    ) -> Any:
+        """Same as :meth:`_invoke_handler` but returns the handler's result."""
+        try:
+            result = handler(event, ctx)
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as exc:
+            stack = traceback.format_exc()
+            self.emit_error(
+                ExtensionError(
+                    extension_path=extension.path,
+                    event=event_type,
+                    error=str(exc) or exc.__class__.__name__,
+                    stack=stack,
+                )
+            )
+            return None
+        return result
+
     async def emit(self, event: LifecycleEvent | dict[str, Any]) -> None:
         """Dispatch a lifecycle event to every matching handler.
 

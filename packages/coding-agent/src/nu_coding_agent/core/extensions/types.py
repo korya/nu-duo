@@ -157,9 +157,61 @@ class ToolExecutionEndEvent:
     result: Any = None
 
 
-#: Discriminated union of every lifecycle event payload covered by this
-#: slice. Extension handlers and the runner accept the union; downstream
-#: code dispatches on ``event.type``.
+# ---------------------------------------------------------------------------
+# Compaction lifecycle events
+# ---------------------------------------------------------------------------
+
+
+@dataclass(slots=True)
+class SessionBeforeCompactEvent:
+    """Fired before context compaction. Handlers can cancel or replace.
+
+    Mirrors TS ``SessionBeforeCompactEvent``. Handlers may return a
+    :class:`SessionBeforeCompactResult` (or a dict with ``cancel`` /
+    ``compaction`` keys) to either abort the compaction entirely or
+    supply a custom :class:`CompactionResult` that bypasses the LLM
+    summarisation.
+    """
+
+    type: Literal["session_before_compact"] = "session_before_compact"
+    preparation: Any = None
+    branch_entries: list[Any] = field(default_factory=list)
+    custom_instructions: str | None = None
+
+
+@dataclass(slots=True)
+class SessionCompactEvent:
+    """Fired after context compaction has been persisted to the session.
+
+    Mirrors TS ``SessionCompactEvent``. ``from_extension`` is ``True``
+    when an extension supplied the compaction result via
+    ``before_compact``, ``False`` when the LLM produced it via the
+    standard summarisation path.
+    """
+
+    type: Literal["session_compact"] = "session_compact"
+    compaction_entry: Any = None
+    from_extension: bool = False
+
+
+@dataclass(slots=True)
+class SessionBeforeCompactResult:
+    """Return value from ``session_before_compact`` handlers.
+
+    Mirrors TS ``SessionBeforeCompactResult``. Handlers may also
+    return a plain ``dict`` with ``cancel`` / ``compaction`` keys —
+    :meth:`AgentSession.compact` accepts both forms.
+    """
+
+    cancel: bool = False
+    compaction: Any = None
+
+
+#: Discriminated union of every lifecycle event payload the runner can
+#: dispatch. Extension handlers and the runner accept the union;
+#: downstream code dispatches on ``event.type``. The compaction events
+#: are forward references so the union is in topological order with
+#: their definitions further down.
 type LifecycleEvent = (
     SessionStartEvent
     | SessionShutdownEvent
@@ -173,6 +225,8 @@ type LifecycleEvent = (
     | ToolExecutionStartEvent
     | ToolExecutionUpdateEvent
     | ToolExecutionEndEvent
+    | "SessionBeforeCompactEvent"
+    | "SessionCompactEvent"
 )
 
 
