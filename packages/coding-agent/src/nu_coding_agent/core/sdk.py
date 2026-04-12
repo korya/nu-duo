@@ -37,7 +37,6 @@ from nu_coding_agent.core.system_prompt import BuildSystemPromptOptions, build_s
 from nu_coding_agent.core.tools import create_all_tools
 
 if TYPE_CHECKING:
-
     from nu_coding_agent.core.extensions import ExtensionRunner
 
 

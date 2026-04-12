@@ -38,7 +38,17 @@ from nu_tui.components.loader import Loader as NuLoader
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Footer, Header, Input
+from textual.widgets import Header, Input
+
+from nu_coding_agent.modes.interactive.components.message_renderers import (
+    AssistantMessageWidget,
+    CompactionSummaryWidget,
+    ErrorWidget,
+    InfoWidget,
+    ToolExecutionWidget,
+    UserMessageWidget,
+)
+from nu_coding_agent.modes.interactive.footer import InteractiveFooter
 
 if TYPE_CHECKING:
     from nu_coding_agent.core.agent_session import AgentSession
@@ -145,7 +155,7 @@ class InteractiveApp(App[None]):
             placeholder=f"Message ({model_name}) — /help for commands",
             id="prompt-input",
         )
-        yield Footer()
+        yield InteractiveFooter(self._session)
 
     def on_mount(self) -> None:
         self.sub_title = f"cwd: {self._session.cwd}"
@@ -290,11 +300,11 @@ Available commands:
         # Show thinking indicator via nu_tui Loader
         self._show_thinking()
 
-        # Create streaming widget backed by nu_tui Text → Markdown
-        self._streaming_widget = _StreamingComponentWidget()
-        self._streaming_widget.add_class("assistant-message")
+        # Create streaming assistant message widget
+        assistant_widget = AssistantMessageWidget()
         area = self.query_one("#message-area", VerticalScroll)
-        area.mount(self._streaming_widget)
+        area.mount(assistant_widget)
+        self._streaming_widget = assistant_widget  # type: ignore[assignment]
 
         def listener(event: Any) -> None:
             event_type = event["type"]
@@ -302,39 +312,44 @@ Available commands:
                 inner = event.get("assistant_message_event")
                 if inner is not None:
                     inner_type = getattr(inner, "type", None)
-                    if inner_type == "text_delta" and self._streaming_widget is not None:
+                    if inner_type == "text_delta":
                         delta = getattr(inner, "delta", "")
                         if delta:
-                            self.call_from_thread(self._streaming_widget.append_delta, delta)
+                            self.call_from_thread(assistant_widget.append_delta, delta)
             if event_type == "tool_execution_end" and not self._quiet:
                 name = event.get("tool_name", "?")
                 is_error = event.get("is_error", False)
-                status = "error" if is_error else "ok"
-                self.call_from_thread(self._add_tool_message, f"[tool {status}] {name}")
+                self.call_from_thread(self._mount_tool_widget, name, is_error)
 
         unsub = self._session.subscribe(listener)
 
         try:
             await self._session.prompt(text)
 
-            if self._streaming_widget is not None:  # pyright: ignore[reportUnnecessaryComparison]
-                self._streaming_widget.finalize_as_markdown()
-                self._streaming_widget.scroll_visible()
+            assistant_widget.finalize()
+            assistant_widget.scroll_visible()
 
             messages = self._session.agent.state.messages
             if messages:
                 last = messages[-1]
                 if getattr(last, "stop_reason", None) == "error":
                     err = getattr(last, "error_message", None) or "unknown error"
-                    self._add_error(f"[error] {err}")
+                    self._mount_error(err)
+
+            # Update footer with new entry count
+            try:
+                footer = self.query_one(InteractiveFooter)
+                footer.refresh_content()
+            except Exception:
+                pass
 
             if self._session.should_compact():
                 self._run_compact()
 
         except KeyboardInterrupt:
-            self._add_error("[interrupted]")
+            self._mount_error("interrupted")
         except Exception as exc:
-            self._add_error(f"[error] {exc}")
+            self._mount_error(str(exc))
         finally:
             unsub()
             self._streaming_widget = None
@@ -352,9 +367,12 @@ Available commands:
         try:
             result = await self._session.compact()
             if result is not None:
-                self._add_info(f"[compacted] {result.tokens_before} tokens → summarized")
+                widget = CompactionSummaryWidget(result.summary, result.tokens_before)
+                area = self.query_one("#message-area", VerticalScroll)
+                area.mount(widget)
+                widget.scroll_visible()
         except Exception as exc:
-            self._add_error(f"[compaction error] {exc}")
+            self._mount_error(f"compaction: {exc}")
 
     # ------------------------------------------------------------------
     # Thinking indicator — nu_tui Loader component
@@ -371,7 +389,6 @@ Available commands:
 
     def _hide_thinking(self) -> None:
         if self._thinking_widget is not None:
-            # Stop the loader's animation task
             component = self._thinking_widget.component
             if isinstance(component, NuLoader):
                 component.stop()
@@ -379,37 +396,33 @@ Available commands:
             self._thinking_widget = None
 
     # ------------------------------------------------------------------
-    # Message rendering via nu_tui components
+    # Message rendering via specialized widgets
     # ------------------------------------------------------------------
 
     def _add_user_message(self, text: str) -> None:
-        """Add a user message rendered via nu_tui Text."""
-        component = NuText(text)
-        widget = ComponentWidget(component, classes="user-message")
+        """Add a user message via UserMessageWidget."""
+        widget = UserMessageWidget(text)
         area = self.query_one("#message-area", VerticalScroll)
         area.mount(widget)
         widget.scroll_visible()
 
-    def _add_tool_message(self, text: str) -> None:
-        """Add a tool call message rendered via nu_tui Text."""
-        component = NuText(text)
-        widget = ComponentWidget(component, classes="tool-message")
+    def _mount_tool_widget(self, tool_name: str, is_error: bool) -> None:
+        """Add a tool execution widget."""
+        widget = ToolExecutionWidget(tool_name, is_error=is_error)
         area = self.query_one("#message-area", VerticalScroll)
         area.mount(widget)
         widget.scroll_visible()
 
     def _add_info(self, text: str) -> None:
-        """Add an informational message rendered via nu_tui Text."""
-        component = NuText(text)
-        widget = ComponentWidget(component, classes="info-message")
+        """Add an informational message."""
+        widget = InfoWidget(text)
         area = self.query_one("#message-area", VerticalScroll)
         area.mount(widget)
         widget.scroll_visible()
 
-    def _add_error(self, text: str) -> None:
-        """Add an error message rendered via nu_tui Text."""
-        component = NuText(text)
-        widget = ComponentWidget(component, classes="error-message")
+    def _mount_error(self, message: str) -> None:
+        """Add an error message."""
+        widget = ErrorWidget(message)
         area = self.query_one("#message-area", VerticalScroll)
         area.mount(widget)
         widget.scroll_visible()

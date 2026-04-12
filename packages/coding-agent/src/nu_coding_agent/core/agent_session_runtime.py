@@ -15,7 +15,6 @@ from nu_coding_agent.core.session_cwd import assert_session_cwd_exists
 from nu_coding_agent.core.session_manager import SessionManager
 
 if TYPE_CHECKING:
-
     from nu_coding_agent.core.agent_session import AgentSession
     from nu_coding_agent.core.agent_session_services import (
         AgentSessionRuntimeDiagnostic,
