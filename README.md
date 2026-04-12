@@ -12,7 +12,7 @@ prefixed with `nu-` (PyPI distribution name) / `nu_` (Python import name):
 | `@mariozechner/pi-ai` | `nu-ai` | partial — types, event stream, registry, transforms, faux + Anthropic + OpenAI Chat Completions + Google providers, top-level stream/complete; OpenAI Responses, Bedrock, Mistral, Vertex, OAuth flows still deferred |
 | `@mariozechner/pi-agent-core` | `nu-agent-core` | done — types, agent loop with sequential/parallel tool execution, stateful Agent class, hooks, steering/follow-up queues |
 | `@mariozechner/pi-tui` | `nu-tui` | partial — pure utilities (UndoStack, KillRing, fuzzy, keys, keybindings); Textual-backed renderer + components deferred until consumed by interactive mode |
-| `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — all seven tools (read, write, edit, bash, ls, find, grep), system_prompt, agent_session, session_manager (full tree + JSONL byte-compat with TS, including `create_branched_session`), compaction (full public surface incl. reasoning-level propagation, multi-compaction, split-turn, large-session round-trip), print mode wired through `nu --print` with `--continue` / `--session` / `--ephemeral` flags, extensions foundation (types, runner, loader via Python entry points + in-process factories, lifecycle event dispatch with error capture, deferred no-op surface for tools/commands/shortcuts/flags/renderers); AgentSession integration of extension hooks, extension-registered tool wrapping, command/shortcut/renderer consumers, RPC mode, and interactive mode still deferred |
+| `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — all seven tools (read, write, edit, bash, ls, find, grep), system_prompt, agent_session (with optional `extension_runner` that receives all 10 lifecycle events from real prompts + `session_start` on first prompt + `session_shutdown` on `await session.shutdown()`), session_manager (full tree + JSONL byte-compat with TS, including `create_branched_session`), compaction (full public surface incl. reasoning-level propagation, multi-compaction, split-turn, large-session round-trip), print mode wired through `nu --print` with `--continue` / `--session` / `--ephemeral` flags, extensions foundation (types, runner, loader via Python entry points + in-process factories, lifecycle event dispatch with error capture, deferred no-op surface for tools/commands/shortcuts/flags/renderers); extension-registered tool wrapping, action-method runtime binding, command/shortcut/renderer consumers, RPC mode, and interactive mode still deferred |
 | `@mariozechner/pi-mom` | `nu-mom` | scaffold only |
 | `@mariozechner/pi-pods` | `nu-pods` | done — types, config, ssh wrappers, model catalogue, all commands (setup/start/stop/list/logs/models/agent), `nu-pods` CLI; `agent` subcommand bridges into `nu_coding_agent` via `--base-url` / `--api` flags so a deployed vLLM pod is fully usable with `nu --print` semantics |
 | `@mariozechner/pi-web-ui` | `nu-web-ui` | scaffold only |
@@ -142,11 +142,13 @@ oversights.
   The library code stays under the 90 % per-package gate.
 - **Deferred surface area.** Skills, agent_session_runtime, modes/rpc,
   modes/interactive, and most upstream CLI flags are still deferred.
-  Extensions have a foundation layer (types, runner, loader via Python
-  entry points + in-process factories, lifecycle event dispatch with
-  error capture) but the action surface (sendMessage, setLabel,
-  setModel, etc.), AgentSession integration of hooks, and the
-  consumers of extension-registered tools/commands/shortcuts/renderers
+  Extensions have a foundation layer + AgentSession integration of
+  every lifecycle event (`agent_start`/`end`, `turn_start`/`end`,
+  `message_start`/`update`/`end`, `tool_execution_start`/`update`/`end`,
+  `session_start` lazily on first prompt, `session_shutdown` on
+  `await session.shutdown()`), but the action surface (sendMessage,
+  setLabel, setModel, etc.), extension-registered tool wrapping, and
+  the consumers of extension-registered commands/shortcuts/renderers
   are still deferred and tracked as follow-up sub-slices. The minimal
   `nu` CLI supports `--print` mode with session persistence
   (`--continue`, `--session FILE`, `--ephemeral`); the remaining 30+

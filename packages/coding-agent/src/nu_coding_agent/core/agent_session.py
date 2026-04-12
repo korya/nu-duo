@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 
     from nu_coding_agent.core.auth_storage import AuthStorage
     from nu_coding_agent.core.compaction import CompactionPreparation, CompactionResult
+    from nu_coding_agent.core.extensions import ExtensionRunner, LifecycleEvent
     from nu_coding_agent.core.model_registry import ModelRegistry
     from nu_coding_agent.core.session_manager import SessionManager
 
@@ -92,6 +93,10 @@ class AgentSessionConfig:
     auth_storage: AuthStorage
     cwd: str
     compaction_settings: CompactionSettings = field(default_factory=lambda: DEFAULT_COMPACTION_SETTINGS)
+    #: Optional :class:`ExtensionRunner` that receives lifecycle events as
+    #: the agent loop runs. ``None`` (the default) preserves the
+    #: pre-extensions behaviour exactly — no events are dispatched.
+    extension_runner: ExtensionRunner | None = None
 
 
 # Listener: receives every :class:`AgentEvent` synchronously after the
@@ -116,9 +121,13 @@ class AgentSession:
         self._auth_storage = config.auth_storage
         self._cwd = config.cwd
         self._compaction_settings = config.compaction_settings
+        self._extension_runner = config.extension_runner
 
         self._listeners: list[AgentSessionListener] = []
         self._closed = False
+        # Tracks whether ``session_start`` has fired so we only emit it
+        # once per AgentSession lifetime, on the first prompt.
+        self._extensions_started = False
 
         # The persisting listener runs first so user-supplied subscribers
         # always observe events that are already on disk.
@@ -138,6 +147,7 @@ class AgentSession:
         auth_storage: AuthStorage,
         cwd: str,
         compaction_settings: CompactionSettings | None = None,
+        extension_runner: ExtensionRunner | None = None,
     ) -> AgentSession:
         """Build an :class:`AgentSession` from the four required collaborators."""
         return cls(
@@ -148,17 +158,35 @@ class AgentSession:
                 auth_storage=auth_storage,
                 cwd=cwd,
                 compaction_settings=compaction_settings or DEFAULT_COMPACTION_SETTINGS,
+                extension_runner=extension_runner,
             )
         )
 
     def close(self) -> None:
-        """Detach the session listener from the agent. Safe to call twice."""
+        """Detach the session listener from the agent. Safe to call twice.
+
+        Sync close: only unsubscribes from the agent. To also broadcast
+        ``session_shutdown`` to attached extensions, use
+        :meth:`shutdown` (which is async). Existing call sites that
+        don't use extensions can keep calling ``close()`` directly.
+        """
         if self._closed:
             return
         self._closed = True
         if self._unsubscribe_agent is not None:
             self._unsubscribe_agent()
             self._unsubscribe_agent = None
+
+    async def shutdown(self) -> None:
+        """Async close: emit ``session_shutdown`` to extensions, then detach.
+
+        Idempotent — safe to call multiple times. Always invokes
+        :meth:`close` at the end so the agent listener is detached even
+        if there is no extension runner attached.
+        """
+        if self._extension_runner is not None and self._extensions_started:
+            await self._extension_runner.shutdown()
+        self.close()
 
     # ------------------------------------------------------------------
     # Accessors
@@ -185,6 +213,11 @@ class AgentSession:
         return self._cwd
 
     @property
+    def extension_runner(self) -> ExtensionRunner | None:
+        """Return the attached :class:`ExtensionRunner`, if any."""
+        return self._extension_runner
+
+    @property
     def model(self) -> Model | None:
         """Active model, or ``None`` if the agent is using its placeholder default."""
         candidate = self._agent.state.model
@@ -207,8 +240,21 @@ class AgentSession:
         return unsubscribe
 
     async def _handle_agent_event(self, event: AgentEvent, _signal: asyncio.Event) -> None:
-        """Persist the event into the session, then forward to user listeners."""
+        """Persist the event into the session, dispatch to extensions, then user listeners.
+
+        Order is load-bearing:
+
+        1. **Persist first** — the session JSONL is the source of truth.
+           User listeners and extension hooks must never observe events
+           that aren't already durably on disk.
+        2. **Then dispatch to extensions** — they get a consistent view
+           of the session state and can react with their own writes.
+        3. **Then user listeners** — anything subscribed via
+           :meth:`subscribe` runs last so it can rely on both
+           persistence and extension reactions having completed.
+        """
         await self._persist_event(event)
+        await self._dispatch_extension_event(event)
         for listener in list(self._listeners):
             try:
                 result = listener(event)
@@ -220,6 +266,22 @@ class AgentSession:
                 import sys  # noqa: PLC0415
 
                 print(f"AgentSession listener error: {exc}", file=sys.stderr)
+
+    async def _dispatch_extension_event(self, event: AgentEvent) -> None:
+        """Translate an :class:`AgentEvent` and emit it to the extension runner.
+
+        The agent loop's :class:`AgentEvent` types and the extension
+        :class:`LifecycleEvent` dataclasses share the same ``type``
+        discriminator strings (``agent_start`` / ``message_end`` / ...),
+        so this is a straight 1:1 mapping. Returns immediately when no
+        runner is attached so the per-event hot path stays free for
+        the no-extensions case.
+        """
+        if self._extension_runner is None:
+            return
+        translated = _translate_to_extension_event(event)
+        if translated is not None:
+            await self._extension_runner.emit(translated)
 
     async def _persist_event(self, event: AgentEvent) -> None:
         """Persist ``message_end`` events into the session JSONL.
@@ -270,6 +332,13 @@ class AgentSession:
                 f'No API key configured for provider "{model.provider}". Set the corresponding env var or run /login.'
             )
 
+        # Fire ``session_start`` exactly once, lazily, on the first
+        # prompt. We can't do this from ``__init__`` because it's sync
+        # and emit() is async; deferring to the first prompt also
+        # mirrors the upstream lifecycle (a session that's constructed
+        # but never prompted should not produce a session_start event).
+        await self._ensure_extensions_started()
+
         # The agent loop emits a ``message_end`` for the user prompt
         # itself; the listener catches it and persists it. We don't
         # build the UserMessage manually here because doing so would
@@ -279,6 +348,20 @@ class AgentSession:
             # so this is a forward-compat check rather than a feature.
             raise NotImplementedError("Image attachments are not yet supported by AgentSession.prompt().")
         await self._agent.prompt(text)
+
+    async def _ensure_extensions_started(self) -> None:
+        """Lazily emit ``session_start`` to the runner on the first prompt."""
+        if self._extension_runner is None or self._extensions_started:
+            return
+        self._extensions_started = True
+        from nu_coding_agent.core.extensions import SessionStartEvent  # noqa: PLC0415
+
+        await self._extension_runner.emit(
+            SessionStartEvent(
+                cwd=self._cwd,
+                session_id=self._session_manager.get_session_id(),
+            )
+        )
 
     def set_model(self, model: Model) -> None:
         """Swap the active model and persist a model_change session entry."""
@@ -410,6 +493,68 @@ class AgentSession:
         """Use ``estimate_context_tokens`` from the compaction module."""
         context = self._session_manager.build_session_context()
         return estimate_context_tokens(context.messages).tokens
+
+
+# ---------------------------------------------------------------------------
+# AgentEvent → extension LifecycleEvent translation
+# ---------------------------------------------------------------------------
+
+
+def _translate_to_extension_event(event: AgentEvent) -> LifecycleEvent | None:
+    """Map an :class:`AgentEvent` TypedDict into an extension dataclass.
+
+    The two surfaces share the same ``type`` discriminator strings, so
+    this is just a per-type field projection. Unknown types return
+    ``None`` so :meth:`AgentSession._dispatch_extension_event` simply
+    skips dispatch (forward-compatible with new agent loop events).
+    """
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        AgentEndEvent,
+        AgentStartEvent,
+        MessageEndEvent,
+        MessageStartEvent,
+        MessageUpdateEvent,
+        ToolExecutionEndEvent,
+        ToolExecutionStartEvent,
+        ToolExecutionUpdateEvent,
+        TurnEndEvent,
+        TurnStartEvent,
+    )
+
+    event_type = event["type"]
+    if event_type == "agent_start":
+        return AgentStartEvent()
+    if event_type == "agent_end":
+        return AgentEndEvent()
+    if event_type == "turn_start":
+        return TurnStartEvent()
+    if event_type == "turn_end":
+        return TurnEndEvent()
+    if event_type == "message_start":
+        message = event.get("message")  # type: ignore[union-attr]
+        role = getattr(message, "role", "") if message is not None else ""
+        return MessageStartEvent(role=str(role) if role else "")
+    if event_type == "message_update":
+        return MessageUpdateEvent(payload=event.get("assistant_message_event"))  # type: ignore[union-attr]
+    if event_type == "message_end":
+        return MessageEndEvent(message=event.get("message"))  # type: ignore[union-attr]
+    if event_type == "tool_execution_start":
+        return ToolExecutionStartEvent(
+            tool_name=str(event.get("tool_name", "")),  # type: ignore[union-attr]
+            arguments=event.get("args") or {},  # type: ignore[union-attr]
+        )
+    if event_type == "tool_execution_update":
+        return ToolExecutionUpdateEvent(
+            tool_name=str(event.get("tool_name", "")),  # type: ignore[union-attr]
+            update=event.get("partial_result"),  # type: ignore[union-attr]
+        )
+    if event_type == "tool_execution_end":
+        return ToolExecutionEndEvent(
+            tool_name=str(event.get("tool_name", "")),  # type: ignore[union-attr]
+            is_error=bool(event.get("is_error", False)),  # type: ignore[union-attr]
+            result=event.get("result"),  # type: ignore[union-attr]
+        )
+    return None
 
 
 __all__ = [

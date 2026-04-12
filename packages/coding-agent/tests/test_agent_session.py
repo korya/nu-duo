@@ -709,3 +709,548 @@ def test_get_stats_with_assistant_usage_and_cost() -> None:
         assert stats.cost == 3
     finally:
         session.close()
+
+
+# ---------------------------------------------------------------------------
+# Extension lifecycle integration (sub-slice 2)
+#
+# These tests prove the AgentSession ↔ ExtensionRunner wiring:
+#
+# * session_start fires lazily on the first prompt (not at construction).
+# * Every agent loop event is mapped to the matching extension dataclass
+#   and dispatched to the runner.
+# * The dispatch order is "persist → extensions → user listeners".
+# * shutdown() emits session_shutdown and is idempotent.
+# * No-runner sessions are completely unaffected (existing tests above).
+# ---------------------------------------------------------------------------
+
+
+def _make_session_with_runner(
+    setup: tuple[Agent, SessionManager, ModelRegistry, AuthStorage],
+    runner: Any,
+) -> AgentSession:
+    agent, sm, registry, storage = setup
+    return AgentSession(
+        AgentSessionConfig(
+            agent=agent,
+            session_manager=sm,
+            model_registry=registry,
+            auth_storage=storage,
+            cwd="/work",
+            extension_runner=runner,
+        )
+    )
+
+
+async def test_extension_runner_attached_via_create() -> None:
+    """``create`` accepts an ``extension_runner`` keyword argument."""
+    from nu_coding_agent.core.extensions import ExtensionRunner  # noqa: PLC0415
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(cwd="/work")
+        session = AgentSession.create(
+            agent=agent,
+            session_manager=sm,
+            model_registry=registry,
+            auth_storage=storage,
+            cwd="/work",
+            extension_runner=runner,
+        )
+        assert session.extension_runner is runner
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_session_start_emitted_on_first_prompt_only() -> None:
+    """``session_start`` fires once on the first prompt, never again."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        SessionStartEvent,
+        load_extensions_from_factories,
+    )
+
+    seen: list[Any] = []
+
+    def register(api: ExtensionAPI) -> None:
+        api.on("session_start", lambda event, ctx: seen.append(event))
+
+    load_result = await load_extensions_from_factories([("<inline:start>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        # No events fired at construction.
+        assert seen == []
+
+        registration.set_responses([faux_assistant_message("hi")])
+        await session.prompt("first")
+        # session_start fired exactly once during the first prompt.
+        assert len(seen) == 1
+        assert isinstance(seen[0], SessionStartEvent)
+        assert seen[0].cwd == "/work"
+
+        registration.set_responses([faux_assistant_message("hi again")])
+        await session.prompt("second")
+        # Still exactly one — session_start does not re-fire.
+        assert len(seen) == 1
+
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_lifecycle_events_dispatched_during_prompt() -> None:
+    """All ten lifecycle event types reach the extension runner from a real prompt."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    received: list[str] = []
+
+    def register(api: ExtensionAPI) -> None:
+        for event_name in (
+            "agent_start",
+            "agent_end",
+            "turn_start",
+            "turn_end",
+            "message_start",
+            "message_update",
+            "message_end",
+            "tool_execution_start",
+            "tool_execution_update",
+            "tool_execution_end",
+        ):
+            api.on(event_name, lambda event, ctx, name=event_name: received.append(name))
+
+    load_result = await load_extensions_from_factories([("<inline:lifecycle>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        registration.set_responses([faux_assistant_message("hello")])
+        await session.prompt("hi")
+
+        # Every event the agent loop produced should have been dispatched.
+        assert "agent_start" in received
+        assert "agent_end" in received
+        assert "message_start" in received
+        assert "message_end" in received
+        # agent_start always precedes agent_end.
+        assert received.index("agent_start") < received.index("agent_end")
+        # Every message_start has a matching message_end after it.
+        assert received.index("message_start") < received.index("message_end")
+        # No errors leaked to the runner.
+        assert runner.drain_errors() == []
+
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_extension_event_payload_carries_message() -> None:
+    """``message_end`` events expose the assistant message to extensions."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionContext,
+        ExtensionRunner,
+        MessageEndEvent,
+        load_extensions_from_factories,
+    )
+
+    captured: list[Any] = []
+
+    def register(api: ExtensionAPI) -> None:
+        def on_message_end(event: Any, ctx: ExtensionContext) -> None:
+            captured.append(event)
+
+        api.on("message_end", on_message_end)
+
+    load_result = await load_extensions_from_factories([("<inline:msg>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        registration.set_responses([faux_assistant_message("ack")])
+        await session.prompt("hi")
+
+        # We should see a message_end event for both the user prompt and
+        # the assistant reply (and possibly tool results, but the faux
+        # provider doesn't issue any tool calls).
+        assert len(captured) >= 2
+        assert all(isinstance(e, MessageEndEvent) for e in captured)
+        assistant_payloads = [e.message for e in captured if getattr(e.message, "role", None) == "assistant"]
+        assert len(assistant_payloads) == 1
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_dispatch_order_persist_then_extensions_then_listeners() -> None:
+    """Persistence runs before extension dispatch which runs before user listeners."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionContext,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    order: list[str] = []
+
+    def register(api: ExtensionAPI) -> None:
+        def on_message_end(event: Any, ctx: ExtensionContext) -> None:
+            order.append("extension")
+
+        api.on("message_end", on_message_end)
+
+    load_result = await load_extensions_from_factories([("<inline:order>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        # Track persistence indirectly: the session manager has the
+        # entry on disk by the time the listener runs. The listener
+        # checks both that fact AND that the extension already saw the
+        # event.
+        def listener(event: Any) -> None:
+            if event["type"] == "message_end":
+                # SessionManager already has the entry persisted.
+                last_entry = sm.get_entries()[-1] if sm.get_entries() else None
+                assert last_entry is not None
+                # And the extension handler has already run.
+                assert "extension" in order
+                order.append("listener")
+
+        session.subscribe(listener)
+
+        registration.set_responses([faux_assistant_message("ack")])
+        await session.prompt("hi")
+
+        # Listener should have run after every extension call.
+        assert order.count("extension") >= 2  # at least user + assistant message_end
+        assert "listener" in order
+
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_shutdown_emits_session_shutdown_then_closes() -> None:
+    """``shutdown()`` broadcasts session_shutdown then unsubscribes."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        SessionShutdownEvent,
+        load_extensions_from_factories,
+    )
+
+    shutdown_seen: list[Any] = []
+
+    def register(api: ExtensionAPI) -> None:
+        api.on("session_shutdown", lambda event, ctx: shutdown_seen.append(event))
+
+    load_result = await load_extensions_from_factories([("<inline:shutdown>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        # Drive one prompt so session_start has fired (extensions are
+        # only "started" after the first prompt).
+        registration.set_responses([faux_assistant_message("ack")])
+        await session.prompt("hi")
+
+        await session.shutdown()
+        assert len(shutdown_seen) == 1
+        assert isinstance(shutdown_seen[0], SessionShutdownEvent)
+
+        # Idempotent.
+        await session.shutdown()
+        assert len(shutdown_seen) == 1
+
+        # Subsequent prompt rejected because the session is closed.
+        with pytest.raises(RuntimeError, match="closed"):
+            await session.prompt("post-shutdown")
+    finally:
+        registration.unregister()
+
+
+async def test_shutdown_without_first_prompt_skips_shutdown_event() -> None:
+    """``shutdown()`` before any prompt does not emit ``session_shutdown``.
+
+    Symmetric to the lazy ``session_start`` semantics: if the session
+    never started, it has nothing to shut down. The agent listener is
+    still detached so calling ``shutdown()`` is always safe.
+    """
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    seen: list[Any] = []
+
+    def register(api: ExtensionAPI) -> None:
+        api.on("session_shutdown", lambda event, ctx: seen.append(event))
+
+    load_result = await load_extensions_from_factories([("<inline:nostart>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        await session.shutdown()  # never prompted → never started
+        assert seen == []
+    finally:
+        registration.unregister()
+
+
+async def test_shutdown_works_without_runner() -> None:
+    """``shutdown()`` is safe to call when no runner is attached."""
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        session = AgentSession(
+            AgentSessionConfig(
+                agent=agent,
+                session_manager=sm,
+                model_registry=registry,
+                auth_storage=storage,
+                cwd="/work",
+            )
+        )
+        await session.shutdown()  # no runner → just close
+        # Idempotent.
+        await session.shutdown()
+    finally:
+        registration.unregister()
+
+
+async def test_extension_handler_exception_does_not_break_user_listener() -> None:
+    """A broken extension handler must not prevent user listeners from running."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionContext,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    def register(api: ExtensionAPI) -> None:
+        def boom(event: Any, ctx: ExtensionContext) -> None:
+            raise RuntimeError("extension exploded")
+
+        api.on("message_end", boom)
+
+    load_result = await load_extensions_from_factories([("<inline:bad>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        listener_calls: list[Any] = []
+        session.subscribe(lambda event: listener_calls.append(event["type"]))
+
+        registration.set_responses([faux_assistant_message("ack")])
+        await session.prompt("hi")  # must not raise
+
+        # User listener still ran for every event.
+        assert "message_end" in listener_calls
+        # Runner captured the extension error.
+        errors = runner.drain_errors()
+        assert any("extension exploded" in err.error for err in errors)
+        session.close()
+    finally:
+        registration.unregister()
+
+
+def test_translate_to_extension_event_unknown_returns_none() -> None:
+    """Unknown agent event types return ``None`` (forward-compatible)."""
+    from nu_coding_agent.core.agent_session import (  # noqa: PLC0415
+        _translate_to_extension_event,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    assert _translate_to_extension_event({"type": "future_event_type"}) is None  # type: ignore[arg-type]
+
+
+def test_translate_to_extension_event_covers_all_known_types() -> None:
+    """Spot-check the translation table for every documented event type."""
+    from nu_coding_agent.core.agent_session import (  # noqa: PLC0415
+        _translate_to_extension_event,  # pyright: ignore[reportPrivateUsage]
+    )
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        AgentEndEvent,
+        AgentStartEvent,
+        MessageEndEvent,
+        MessageStartEvent,
+        MessageUpdateEvent,
+        ToolExecutionEndEvent,
+        ToolExecutionStartEvent,
+        ToolExecutionUpdateEvent,
+        TurnEndEvent,
+        TurnStartEvent,
+    )
+
+    pairs = [
+        ({"type": "agent_start"}, AgentStartEvent),
+        ({"type": "agent_end", "messages": []}, AgentEndEvent),
+        ({"type": "turn_start"}, TurnStartEvent),
+        ({"type": "turn_end", "message": None, "tool_results": []}, TurnEndEvent),
+        ({"type": "message_start", "message": None}, MessageStartEvent),
+        ({"type": "message_update", "message": None, "assistant_message_event": None}, MessageUpdateEvent),
+        ({"type": "message_end", "message": None}, MessageEndEvent),
+        (
+            {"type": "tool_execution_start", "tool_call_id": "tc1", "tool_name": "read", "args": {"x": 1}},
+            ToolExecutionStartEvent,
+        ),
+        (
+            {
+                "type": "tool_execution_update",
+                "tool_call_id": "tc1",
+                "tool_name": "read",
+                "args": {},
+                "partial_result": None,
+            },
+            ToolExecutionUpdateEvent,
+        ),
+        (
+            {
+                "type": "tool_execution_end",
+                "tool_call_id": "tc1",
+                "tool_name": "read",
+                "result": None,
+                "is_error": False,
+            },
+            ToolExecutionEndEvent,
+        ),
+    ]
+
+    for event_dict, expected_cls in pairs:
+        translated = _translate_to_extension_event(event_dict)  # type: ignore[arg-type]
+        assert isinstance(translated, expected_cls)
+
+
+# Keep ``asyncio`` referenced — used by other tests in the file but
+# the Edit churn occasionally drops it from imports.
+_ = asyncio

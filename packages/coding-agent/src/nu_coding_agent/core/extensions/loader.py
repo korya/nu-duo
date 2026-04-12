@@ -149,7 +149,9 @@ def _create_extension(path: str, resolved_path: str) -> Extension:
     onto each command record).
     """
     base_dir = None if path.startswith("<") else str(Path(resolved_path).parent)
-    source = path[1:-1].split(":", maxsplit=1)[0] or "temporary" if path.startswith("<") and path.endswith(">") else "local"
+    source = (
+        path[1:-1].split(":", maxsplit=1)[0] or "temporary" if path.startswith("<") and path.endswith(">") else "local"
+    )
     return Extension(
         path=path,
         resolved_path=resolved_path,
