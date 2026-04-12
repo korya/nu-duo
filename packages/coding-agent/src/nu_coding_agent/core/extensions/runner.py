@@ -103,6 +103,19 @@ class ExtensionRunner:
     def get_extension_paths(self) -> list[str]:
         return [ext.path for ext in self._extensions]
 
+    def get_all_registered_tools(self) -> list[Any]:
+        """Return every tool registered by every loaded extension.
+
+        Tools are returned in load order, with each extension's tools
+        in registration order. Names are not deduplicated — that's the
+        caller's job (typically :func:`AgentSession.apply_extension_tools`,
+        which lets later extensions override built-in tools by name).
+        """
+        out: list[Any] = []
+        for extension in self._extensions:
+            out.extend(extension.tools.values())
+        return out
+
     def has_handlers(self, event_type: str) -> bool:
         """Return ``True`` iff at least one extension handles ``event_type``."""
         return any(event_type in ext.handlers for ext in self._extensions)

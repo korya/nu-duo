@@ -12,7 +12,7 @@ prefixed with `nu-` (PyPI distribution name) / `nu_` (Python import name):
 | `@mariozechner/pi-ai` | `nu-ai` | partial — types, event stream, registry, transforms, faux + Anthropic + OpenAI Chat Completions + Google providers, top-level stream/complete; OpenAI Responses, Bedrock, Mistral, Vertex, OAuth flows still deferred |
 | `@mariozechner/pi-agent-core` | `nu-agent-core` | done — types, agent loop with sequential/parallel tool execution, stateful Agent class, hooks, steering/follow-up queues |
 | `@mariozechner/pi-tui` | `nu-tui` | partial — pure utilities (UndoStack, KillRing, fuzzy, keys, keybindings); Textual-backed renderer + components deferred until consumed by interactive mode |
-| `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — all seven tools (read, write, edit, bash, ls, find, grep), system_prompt, agent_session (with optional `extension_runner` that receives all 10 lifecycle events from real prompts + `session_start` on first prompt + `session_shutdown` on `await session.shutdown()`), session_manager (full tree + JSONL byte-compat with TS, including `create_branched_session`), compaction (full public surface incl. reasoning-level propagation, multi-compaction, split-turn, large-session round-trip), print mode wired through `nu --print` with `--continue` / `--session` / `--ephemeral` flags, extensions foundation (types, runner, loader via Python entry points + in-process factories, lifecycle event dispatch with error capture, deferred no-op surface for tools/commands/shortcuts/flags/renderers); extension-registered tool wrapping, action-method runtime binding, command/shortcut/renderer consumers, RPC mode, and interactive mode still deferred |
+| `@mariozechner/pi-coding-agent` | `nu-coding-agent` | partial — all seven tools (read, write, edit, bash, ls, find, grep), system_prompt, agent_session (with optional `extension_runner` that receives all 10 lifecycle events from real prompts + `session_start` on first prompt + `session_shutdown` on `await session.shutdown()` + `apply_extension_tools()` to merge extension-registered tools into `agent.state.tools` with built-in override semantics), session_manager (full tree + JSONL byte-compat with TS, including `create_branched_session`), compaction (full public surface incl. reasoning-level propagation, multi-compaction, split-turn, large-session round-trip), print mode wired through `nu --print` with `--continue` / `--session` / `--ephemeral` flags, extensions foundation + AgentSession integration + extension-registered tool wrapping (extensions can ship `AgentTool` instances via `api.register_tool()` and the agent loop calls them like built-ins); action-method runtime binding (`bind_core` / `sendMessage` / `setLabel` / `setModel` etc.), command/shortcut/renderer consumers, RPC mode, and interactive mode still deferred |
 | `@mariozechner/pi-mom` | `nu-mom` | scaffold only |
 | `@mariozechner/pi-pods` | `nu-pods` | done — types, config, ssh wrappers, model catalogue, all commands (setup/start/stop/list/logs/models/agent), `nu-pods` CLI; `agent` subcommand bridges into `nu_coding_agent` via `--base-url` / `--api` flags so a deployed vLLM pod is fully usable with `nu --print` semantics |
 | `@mariozechner/pi-web-ui` | `nu-web-ui` | scaffold only |
@@ -142,15 +142,17 @@ oversights.
   The library code stays under the 90 % per-package gate.
 - **Deferred surface area.** Skills, agent_session_runtime, modes/rpc,
   modes/interactive, and most upstream CLI flags are still deferred.
-  Extensions have a foundation layer + AgentSession integration of
-  every lifecycle event (`agent_start`/`end`, `turn_start`/`end`,
-  `message_start`/`update`/`end`, `tool_execution_start`/`update`/`end`,
-  `session_start` lazily on first prompt, `session_shutdown` on
-  `await session.shutdown()`), but the action surface (sendMessage,
-  setLabel, setModel, etc.), extension-registered tool wrapping, and
-  the consumers of extension-registered commands/shortcuts/renderers
-  are still deferred and tracked as follow-up sub-slices. The minimal
-  `nu` CLI supports `--print` mode with session persistence
+  Extensions now have foundation + AgentSession lifecycle integration
+  (every event in the agent loop reaches attached extensions) +
+  extension-registered tool wrapping (extensions can ship `AgentTool`
+  instances via `api.register_tool()` and the agent loop calls them
+  like built-ins, with name-based override of built-in tools). The
+  remaining extension surface — action methods (sendMessage, setLabel,
+  setModel, etc., requiring `bind_core` to attach the runtime to a
+  real session), extension command / shortcut / message-renderer
+  consumers, and the `before_compact` / `compact` hooks during
+  compaction — is still deferred and tracked as follow-up sub-slices.
+  The minimal `nu` CLI supports `--print` mode with session persistence
   (`--continue`, `--session FILE`, `--ephemeral`); the remaining 30+
   TS flags will land alongside interactive mode.
 - **Extension loader.** Replaces upstream's `jiti`-based TypeScript

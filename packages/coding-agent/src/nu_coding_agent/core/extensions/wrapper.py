@@ -1,17 +1,31 @@
-"""Tool / handler wrappers — slice-1 stub.
+"""Tool wrappers — Python port of ``packages/coding-agent/src/core/tools/tool-definition-wrapper.ts``.
 
-The TS ``wrapper.ts`` is 27 LoC and exposes ``wrapRegisteredTool`` /
-``wrapRegisteredTools``: helpers that adapt an extension-registered
-tool definition into an :class:`AgentTool` so the agent loop can
-execute it like a built-in. The Python equivalent will land alongside
-the tool-definition-wrapper port (a separate slice — extension tools
-are useless without something that knows how to convert their Pydantic
-parameter models into the JSON Schema the LLM provider expects).
+The TS file splits authoring concerns across two types: ``ToolDefinition``
+(extension-author facing — includes optional ``promptSnippet`` /
+``promptGuidelines`` / ``renderCall`` / ``renderResult`` plus an
+``execute`` callback that receives an :class:`ExtensionContext`) and
+``AgentTool`` (agent-loop facing — strictly the runtime contract).
+``wrapToolDefinition`` adapts the former to the latter by closing over
+the runner's :func:`createContext` factory.
 
-For now this module exists so the import path matches upstream and a
-TS-shaped factory that calls ``wrap_registered_tool`` doesn't blow up
-the loader; the helpers raise :class:`NotImplementedError` so the
-deferred surface is loud.
+The Python port has already collapsed both types into a single
+:class:`nu_agent_core.types.AgentTool` dataclass — the optional
+``prompt_snippet`` / ``prompt_guidelines`` fields cover the
+extension-author surface, and the agent-loop reads only the runtime
+fields. That means the wrapper here is intentionally minimal:
+
+* Extension authors register :class:`AgentTool` instances directly via
+  ``api.register_tool(tool)``.
+* :func:`wrap_registered_tool` returns the tool unchanged for now —
+  there is no separate ``ToolDefinition`` shape to translate from.
+  The function exists so future ctx-injection (when extension tools
+  need to call action methods on the runtime — see follow-up
+  sub-slice 4 for ``bind_core``) has a place to land without
+  changing every call site.
+
+In short: this slice unblocks "extensions can ship tools the LLM can
+call". Extension tools that need to call back into the runtime (e.g.
+``ctx.send_message``) still wait on sub-slice 4.
 """
 
 from __future__ import annotations
@@ -19,23 +33,31 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from nu_agent_core.types import AgentTool
+
     from nu_coding_agent.core.extensions.runner import ExtensionRunner
 
 
-def wrap_registered_tool(registered_tool: Any, runner: ExtensionRunner) -> Any:
-    """Wrap an extension-registered tool into an :class:`AgentTool`.
+def wrap_registered_tool(
+    registered_tool: AgentTool[Any, Any],
+    runner: ExtensionRunner | None = None,
+) -> AgentTool[Any, Any]:
+    """Adapt an extension-registered tool for the agent loop.
 
-    Not yet implemented; the tool-definition-wrapper port is a follow-up
-    slice. Calling this raises :class:`NotImplementedError` rather than
-    silently doing the wrong thing.
+    Currently a passthrough: the Python port's :class:`AgentTool` is
+    already the right shape for the agent loop. ``runner`` is accepted
+    for forward compatibility — once sub-slice 4 lands the action
+    method runtime, this function will close over ``runner.create_context()``
+    and inject the resulting :class:`ExtensionContext` into the tool's
+    ``execute`` callback so extension tools can call back into the
+    runtime.
     """
-    raise NotImplementedError(
-        "wrap_registered_tool is not implemented yet — extension tools land "
-        "alongside the tool-definition-wrapper port. Tracked under the "
-        "extensions follow-up slice."
-    )
+    return registered_tool
 
 
-def wrap_registered_tools(registered_tools: list[Any], runner: ExtensionRunner) -> list[Any]:
-    """List form of :func:`wrap_registered_tool`. Same NotImplementedError contract."""
+def wrap_registered_tools(
+    registered_tools: list[AgentTool[Any, Any]],
+    runner: ExtensionRunner | None = None,
+) -> list[AgentTool[Any, Any]]:
+    """List form of :func:`wrap_registered_tool`."""
     return [wrap_registered_tool(t, runner) for t in registered_tools]

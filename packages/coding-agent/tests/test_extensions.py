@@ -26,7 +26,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
 from nu_coding_agent.core.extensions import (
     AgentEndEvent,
     AgentStartEvent,
@@ -461,20 +460,82 @@ async def test_register_tool_skips_anonymous_tools() -> None:
 
 
 # ---------------------------------------------------------------------------
-# wrapper.py — deferred surface raises NotImplementedError loudly
+# wrapper.py — extension-registered tool wrapping (sub-slice 3)
+#
+# The Python port collapses TS ``ToolDefinition`` and ``AgentTool`` into a
+# single ``AgentTool`` dataclass, so the wrapper is currently a passthrough
+# that exists for forward-compat with sub-slice 4 (action-method binding).
 # ---------------------------------------------------------------------------
 
 
-def test_wrap_registered_tool_raises() -> None:
-    runner = ExtensionRunner.create()
-    with pytest.raises(NotImplementedError, match="extension tools"):
-        wrap_registered_tool({"name": "x"}, runner)
+def _make_agent_tool(name: str = "todo") -> Any:
+    """Build a minimal AgentTool for wrapper round-trip tests."""
+    from nu_agent_core.types import AgentTool, AgentToolResult  # noqa: PLC0415
+
+    async def execute(_tool_call_id: str, params: Any, _signal: Any, _on_update: Any) -> AgentToolResult[Any]:
+        from nu_ai.types import TextContent  # noqa: PLC0415
+
+        return AgentToolResult(
+            content=[TextContent(text=f"called with {params}")],
+            details=None,
+        )
+
+    return AgentTool(
+        name=name,
+        description="test tool",
+        parameters={"type": "object", "properties": {}, "additionalProperties": True},
+        label=name,
+        execute=execute,
+    )
 
 
-def test_wrap_registered_tools_raises_on_first_entry() -> None:
+def test_wrap_registered_tool_returns_agent_tool() -> None:
+    """The wrapper currently passes ``AgentTool`` instances through unchanged."""
     runner = ExtensionRunner.create()
-    with pytest.raises(NotImplementedError):
-        wrap_registered_tools([{"name": "x"}], runner)
+    tool = _make_agent_tool()
+    wrapped = wrap_registered_tool(tool, runner)
+    assert wrapped is tool  # passthrough until ctx-injection lands
+
+
+def test_wrap_registered_tools_returns_list() -> None:
+    """List form returns a parallel list of wrapped tools."""
+    runner = ExtensionRunner.create()
+    tools = [_make_agent_tool("a"), _make_agent_tool("b")]
+    wrapped = wrap_registered_tools(tools, runner)
+    assert [t.name for t in wrapped] == ["a", "b"]
+
+
+def test_wrap_registered_tool_accepts_optional_runner() -> None:
+    """``runner`` is optional so callers without an extension runner can still wrap."""
+    tool = _make_agent_tool()
+    wrapped = wrap_registered_tool(tool)
+    assert wrapped is tool
+
+
+# ---------------------------------------------------------------------------
+# ExtensionRunner.get_all_registered_tools — collects tools from extensions
+# ---------------------------------------------------------------------------
+
+
+async def test_get_all_registered_tools_collects_in_load_order() -> None:
+    """Tools come back in extension load order, then registration order."""
+
+    def first(api: ExtensionAPI) -> None:
+        api.register_tool(_make_agent_tool("alpha"))
+        api.register_tool(_make_agent_tool("beta"))
+
+    def second(api: ExtensionAPI) -> None:
+        api.register_tool(_make_agent_tool("gamma"))
+
+    result = await load_extensions_from_factories([("<inline:first>", first), ("<inline:second>", second)])
+    runner = ExtensionRunner.create(extensions=result.extensions, runtime=result.runtime)
+    names = [t.name for t in runner.get_all_registered_tools()]
+    assert names == ["alpha", "beta", "gamma"]
+
+
+def test_get_all_registered_tools_empty_when_no_extensions() -> None:
+    runner = ExtensionRunner.create()
+    assert runner.get_all_registered_tools() == []
 
 
 # ---------------------------------------------------------------------------

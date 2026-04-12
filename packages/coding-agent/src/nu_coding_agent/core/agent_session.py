@@ -368,6 +368,49 @@ class AgentSession:
         self._agent.state.model = model
         self._session_manager.append_model_change(model.provider, model.id)
 
+    def apply_extension_tools(self) -> int:
+        """Append every extension-registered tool to ``agent.state.tools``.
+
+        Walks the attached extension runner (if any), wraps every
+        registered tool via :func:`wrap_registered_tool`, and appends
+        the result to the agent's active tool list. Tools whose name
+        already exists in the agent's tool list are *replaced*, so
+        extensions can override built-in tools by name. Returns the
+        number of tools appended/overridden so callers can log it.
+
+        Idempotent: calling this twice with the same set of extensions
+        replaces the same tools by name without appending duplicates.
+        Safe to call before or after the first prompt; the agent loop
+        reads ``agent.state.tools`` per turn.
+
+        No-op if no extension runner is attached.
+        """
+        if self._extension_runner is None:
+            return 0
+        from nu_coding_agent.core.extensions.wrapper import (  # noqa: PLC0415
+            wrap_registered_tool,
+        )
+
+        existing = list(self._agent.state.tools)
+        existing_by_name: dict[str, int] = {tool.name: idx for idx, tool in enumerate(existing)}
+        applied = 0
+        for raw in self._extension_runner.get_all_registered_tools():
+            wrapped = wrap_registered_tool(raw, self._extension_runner)
+            name = getattr(wrapped, "name", None)
+            if not name:
+                continue
+            if name in existing_by_name:
+                existing[existing_by_name[name]] = wrapped
+            else:
+                existing_by_name[name] = len(existing)
+                existing.append(wrapped)
+            applied += 1
+        # The agent state copies the list on assignment so future
+        # mutations to ``existing`` after this point would not bleed
+        # through.
+        self._agent.state.tools = existing
+        return applied
+
     # ------------------------------------------------------------------
     # Compaction
     # ------------------------------------------------------------------

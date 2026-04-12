@@ -1185,6 +1185,275 @@ async def test_extension_handler_exception_does_not_break_user_listener() -> Non
         registration.unregister()
 
 
+# ---------------------------------------------------------------------------
+# Extension tool registration (sub-slice 3)
+# ---------------------------------------------------------------------------
+
+
+def _make_extension_tool(name: str, *, marker: str = "called") -> Any:
+    """Build an :class:`AgentTool` instance suitable for ``api.register_tool``."""
+    from nu_agent_core.types import AgentTool, AgentToolResult  # noqa: PLC0415
+    from nu_ai.types import TextContent  # noqa: PLC0415
+
+    async def execute(_tool_call_id: str, params: Any, _signal: Any, _on_update: Any) -> AgentToolResult[Any]:
+        return AgentToolResult(
+            content=[TextContent(text=f"{marker}:{params}")],
+            details=None,
+        )
+
+    return AgentTool(
+        name=name,
+        description=f"test tool {name}",
+        parameters={"type": "object", "properties": {}, "additionalProperties": True},
+        label=name,
+        execute=execute,
+    )
+
+
+async def test_apply_extension_tools_no_runner_is_noop() -> None:
+    """Sessions without an attached runner skip extension tool merging."""
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        session = AgentSession(
+            AgentSessionConfig(
+                agent=agent,
+                session_manager=sm,
+                model_registry=registry,
+                auth_storage=storage,
+                cwd="/work",
+            )
+        )
+        applied = session.apply_extension_tools()
+        assert applied == 0
+        assert agent.state.tools == []
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_apply_extension_tools_appends_extension_tools() -> None:
+    """Extension-registered tools land in agent.state.tools after merge."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    def register(api: ExtensionAPI) -> None:
+        api.register_tool(_make_extension_tool("ext_tool_a"))
+        api.register_tool(_make_extension_tool("ext_tool_b"))
+
+    load_result = await load_extensions_from_factories([("<inline:tools>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        builtin_tool = _make_extension_tool("builtin_tool", marker="builtin")
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": [builtin_tool]},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        applied = session.apply_extension_tools()
+        assert applied == 2
+        names = [t.name for t in agent.state.tools]
+        # Built-in tool stays first, extension tools appended in order.
+        assert names == ["builtin_tool", "ext_tool_a", "ext_tool_b"]
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_apply_extension_tools_overrides_builtin_by_name() -> None:
+    """An extension tool whose name matches a built-in *replaces* the built-in."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    def register(api: ExtensionAPI) -> None:
+        api.register_tool(_make_extension_tool("read", marker="ext-read"))
+
+    load_result = await load_extensions_from_factories([("<inline:override>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        builtin_read = _make_extension_tool("read", marker="builtin-read")
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": [builtin_read]},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        session.apply_extension_tools()
+        assert len(agent.state.tools) == 1
+        from nu_ai.types import TextContent  # noqa: PLC0415
+
+        result = await agent.state.tools[0].execute("tc1", {"x": 1}, None, None)
+        text_block = next(b for b in result.content if isinstance(b, TextContent))
+        assert "ext-read" in text_block.text
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_apply_extension_tools_is_idempotent() -> None:
+    """Calling ``apply_extension_tools`` twice does not duplicate tools."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    def register(api: ExtensionAPI) -> None:
+        api.register_tool(_make_extension_tool("ext_one"))
+
+    load_result = await load_extensions_from_factories([("<inline:idem>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        first_count = session.apply_extension_tools()
+        second_count = session.apply_extension_tools()
+        assert first_count == 1
+        assert second_count == 1
+        # Still exactly one tool — replaced, not duplicated.
+        assert [t.name for t in agent.state.tools] == ["ext_one"]
+        session.close()
+    finally:
+        registration.unregister()
+
+
+async def test_extension_tool_invoked_by_agent_loop() -> None:
+    """End-to-end: extension-registered tool is actually called by the agent loop."""
+    from nu_ai.providers.faux import (  # noqa: PLC0415
+        faux_assistant_message,
+        faux_tool_call,
+    )
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    invocation_count = 0
+
+    def register(api: ExtensionAPI) -> None:
+        from nu_agent_core.types import AgentTool, AgentToolResult  # noqa: PLC0415
+        from nu_ai.types import TextContent  # noqa: PLC0415
+
+        async def execute(_tcid: str, params: Any, _sig: Any, _upd: Any) -> AgentToolResult[Any]:
+            nonlocal invocation_count
+            invocation_count += 1
+            return AgentToolResult(
+                content=[TextContent(text=f"counted={params.get('n', 0)}")],
+                details=None,
+            )
+
+        api.register_tool(
+            AgentTool(
+                name="count",
+                description="Increment a counter and echo the result",
+                parameters={
+                    "type": "object",
+                    "properties": {"n": {"type": "integer"}},
+                    "required": ["n"],
+                },
+                label="count",
+                execute=execute,
+            )
+        )
+
+    load_result = await load_extensions_from_factories([("<inline:counted>", register)])
+
+    registration = register_faux_provider()
+    try:
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+
+        applied = session.apply_extension_tools()
+        assert applied == 1
+
+        # Faux script: assistant returns a tool call, then a final text reply.
+        registration.set_responses(
+            [
+                faux_assistant_message(
+                    [faux_tool_call("count", {"n": 7}, id_="tc1")],
+                    stop_reason="toolUse",
+                ),
+                faux_assistant_message("done"),
+            ]
+        )
+
+        await session.prompt("count to 7")
+
+        # The tool was actually called by the agent loop.
+        assert invocation_count == 1
+        # And the result landed in the session as a tool_result message.
+        entries = sm.get_entries()
+        assert any(isinstance(e.get("message"), dict) and e["message"].get("role") == "toolResult" for e in entries)
+        session.close()
+    finally:
+        registration.unregister()
+
+
 def test_translate_to_extension_event_unknown_returns_none() -> None:
     """Unknown agent event types return ``None`` (forward-compatible)."""
     from nu_coding_agent.core.agent_session import (  # noqa: PLC0415
