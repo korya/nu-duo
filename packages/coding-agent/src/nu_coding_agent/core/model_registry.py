@@ -437,6 +437,14 @@ class ModelRegistry:
     def find(self, provider: str, model_id: str) -> Model | None:
         return next((m for m in self._models if m.provider == provider and m.id == model_id), None)
 
+    def find_by_id(self, model_id: str) -> Model | None:
+        """Find a model by id alone (across all providers)."""
+        return next((m for m in self._models if m.id == model_id), None)
+
+    def get_available_models(self) -> list[Model]:
+        """Alias for :meth:`get_available` used by the model picker UI."""
+        return self.get_available()
+
     def has_configured_auth(self, model: Model) -> bool:
         if self._auth_storage.has_auth(model.provider):
             return True

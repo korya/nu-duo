@@ -155,12 +155,16 @@ class InteractiveApp(App[None]):
 
     _HELP_TEXT = """\
 Available commands:
-  /help     — show this help
-  /exit     — exit the REPL
-  /model    — show the current model
-  /compact  — trigger context compaction
-  /clear    — clear the message area
-  /session  — show session file path
+  /help      — show this help
+  /exit      — exit the REPL
+  /model     — show the current model
+  /models    — pick a model from available models
+  /compact   — trigger context compaction
+  /clear     — clear the message area
+  /session   — show session file path
+  /sessions  — list and switch sessions
+  /settings  — show current settings
+  /theme     — switch dark/light theme
 """
 
     def _handle_slash_command(self, text: str) -> bool:
@@ -176,6 +180,9 @@ Available commands:
             model = self._session.model
             self._add_info(f"Model: {model.id if model else 'none'}")
             return True
+        if cmd == "/models":
+            self._show_model_picker()
+            return True
         if cmd == "/compact":
             self._run_compact()
             return True
@@ -187,7 +194,65 @@ Available commands:
             sf = self._session.session_manager.get_session_file()
             self._add_info(f"Session: {sf or '(in-memory)'}")
             return True
+        if cmd == "/sessions":
+            self._show_session_list()
+            return True
+        if cmd == "/settings":
+            self._show_settings()
+            return True
+        if cmd == "/theme":
+            self._show_theme_picker()
+            return True
         return False
+
+    # ------------------------------------------------------------------
+    # Selector screens
+    # ------------------------------------------------------------------
+
+    def _show_model_picker(self) -> None:
+        from nu_coding_agent.modes.interactive.selectors import ModelPickerScreen  # noqa: PLC0415
+
+        def on_dismiss(model_id: str | None) -> None:
+            if model_id is None:
+                return
+            # Find and set the model
+            model = self._session.model_registry.find_by_id(model_id)
+            if model is not None:
+                self._session.set_model(model)
+                self._add_info(f"Switched to {model.provider}/{model.id}")
+            else:
+                self._add_info(f"Model {model_id} not found in registry")
+
+        self.push_screen(ModelPickerScreen(self._session), on_dismiss)
+
+    def _show_session_list(self) -> None:
+        from nu_coding_agent.modes.interactive.selectors import SessionListScreen  # noqa: PLC0415
+
+        sm = self._session.session_manager
+        entries = sm.get_entries()
+        sessions = [
+            {
+                "path": sm.get_session_file() or "(current)",
+                "first_message": entries[0].get("message", {}).get("content", "")[:80] if entries else "",
+            }
+        ]
+        self.push_screen(SessionListScreen(sessions), lambda _path: None)
+
+    def _show_settings(self) -> None:
+        from nu_coding_agent.modes.interactive.selectors import SettingsScreen  # noqa: PLC0415
+
+        self.push_screen(SettingsScreen(self._session))
+
+    def _show_theme_picker(self) -> None:
+        from nu_coding_agent.modes.interactive.selectors import ThemeSwitcherScreen  # noqa: PLC0415
+
+        def on_dismiss(theme_name: str | None) -> None:
+            if theme_name is None:
+                return
+            self.theme = theme_name  # Textual's built-in theme switching
+            self._add_info(f"Theme: {theme_name}")
+
+        self.push_screen(ThemeSwitcherScreen(), on_dismiss)
 
     # ------------------------------------------------------------------
     # Submit
