@@ -30,7 +30,7 @@ import contextlib
 import inspect
 import traceback
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from nu_coding_agent.core.extensions.types import (
     Extension,
@@ -42,6 +42,27 @@ from nu_coding_agent.core.extensions.types import (
 )
 
 type ExtensionErrorListener = Callable[[ExtensionError], None]
+
+
+@runtime_checkable
+class _BindableSession(Protocol):
+    """Structural shape ``bind_core`` reads from an :class:`AgentSession`.
+
+    Declared as a Protocol so the runner doesn't have to import
+    :class:`AgentSession` directly (which would create a cycle —
+    AgentSession imports the extensions package, the extensions
+    package would then import AgentSession). The real
+    :class:`nu_coding_agent.core.agent_session.AgentSession` satisfies
+    this Protocol structurally.
+    """
+
+    @property
+    def session_manager(self) -> Any: ...
+
+    @property
+    def agent(self) -> Any: ...
+
+    def set_model(self, model: Any) -> None: ...
 
 
 class ExtensionRunner:
@@ -119,6 +140,94 @@ class ExtensionRunner:
     def has_handlers(self, event_type: str) -> bool:
         """Return ``True`` iff at least one extension handles ``event_type``."""
         return any(event_type in ext.handlers for ext in self._extensions)
+
+    # ------------------------------------------------------------------
+    # bind_core — wires runtime action methods to a real AgentSession
+    # ------------------------------------------------------------------
+
+    def bind_core(self, session: _BindableSession) -> None:
+        """Bind the runtime action slots to a real :class:`AgentSession`.
+
+        Subset of TS ``ExtensionRunner.bindCore``: covers the actions
+        that are useful given the slice-3-and-earlier surface
+        (``set_label``, ``append_custom_entry``, ``set_session_name``,
+        ``get_session_name``, ``get_active_tools`` / ``get_all_tools``
+        / ``set_active_tools``, ``set_model``, ``get_thinking_level`` /
+        ``set_thinking_level``).
+
+        The TS ``bindCore`` also wires ``send_message`` /
+        ``send_user_message`` / ``refresh_tools`` / ``get_commands`` /
+        provider registration / context-actions; those depend on the
+        steering queue, slash commands, and the model registry's
+        per-extension state which arrive in follow-up sub-slices.
+
+        After calling this method, extensions can invoke action methods
+        from inside event handlers and (eventually) from inside their
+        registered tools' execute callbacks.
+        """
+        runtime = self._runtime
+        sm = session.session_manager
+        agent = session.agent
+
+        def _set_label(entry_id: str, label: str | None) -> None:
+            sm.append_label_change(entry_id, label)
+
+        def _append_custom_entry(custom_type: str, data: Any = None) -> str:
+            return sm.append_custom_entry(custom_type, data)
+
+        def _set_session_name(name: str) -> None:
+            sm.append_session_info(name)
+
+        def _get_session_name() -> str | None:
+            return sm.get_session_name()
+
+        def _get_active_tools() -> list[str]:
+            return [getattr(t, "name", "") for t in agent.state.tools if getattr(t, "name", None)]
+
+        def _get_all_tools() -> list[dict[str, Any]]:
+            return [
+                {
+                    "name": getattr(t, "name", ""),
+                    "description": getattr(t, "description", ""),
+                    "parameters": getattr(t, "parameters", {}),
+                }
+                for t in agent.state.tools
+                if getattr(t, "name", None)
+            ]
+
+        def _set_active_tools(tool_names: list[str]) -> None:
+            keep = set(tool_names)
+            agent.state.tools = [t for t in agent.state.tools if getattr(t, "name", None) in keep]
+
+        async def _set_model(model: Any) -> bool:
+            session.set_model(model)
+            return True
+
+        # Thinking level lives on the agent state when present, but
+        # the simplified Python AgentSession doesn't track it directly.
+        # We project it through the session manager's most recent
+        # ``thinking_level_change`` entry — that's where
+        # ``set_thinking_level`` lands it, so the round-trip is
+        # consistent.
+        def _get_thinking_level() -> str:
+            for entry in reversed(sm.get_entries()):
+                if entry.get("type") == "thinking_level_change":
+                    return str(entry.get("thinkingLevel", "off"))
+            return "off"
+
+        def _set_thinking_level(level: str) -> None:
+            sm.append_thinking_level_change(level)
+
+        runtime.set_label = _set_label
+        runtime.append_custom_entry = _append_custom_entry
+        runtime.set_session_name = _set_session_name
+        runtime.get_session_name = _get_session_name
+        runtime.get_active_tools = _get_active_tools
+        runtime.get_all_tools = _get_all_tools
+        runtime.set_active_tools = _set_active_tools
+        runtime.set_model = _set_model
+        runtime.get_thinking_level = _get_thinking_level
+        runtime.set_thinking_level = _set_thinking_level
 
     def create_context(self, extension_path: str = "<unknown>") -> ExtensionContext:
         """Build a per-call :class:`ExtensionContext` for handler / tool execution."""

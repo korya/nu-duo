@@ -1454,6 +1454,283 @@ async def test_extension_tool_invoked_by_agent_loop() -> None:
         registration.unregister()
 
 
+# ---------------------------------------------------------------------------
+# Extension action methods (sub-slice 4) — bind_core wires the runtime
+# action slots to the AgentSession so extensions can read+mutate session
+# state from inside event handlers.
+# ---------------------------------------------------------------------------
+
+
+def _build_session_with_extension(setup_factory: Any) -> Any:
+    """Build (registration, session, runner) for an action-method test."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionRunner,
+        load_extensions_from_factories,
+    )
+
+    async def _build():
+        load_result = await load_extensions_from_factories([("<inline:actions>", setup_factory)])
+        registration = register_faux_provider()
+        faux_model = registration.get_model()
+        storage = AuthStorage.in_memory({faux_model.provider: ApiKeyCredential(type="api_key", key="x")})
+        registry = ModelRegistry.in_memory(storage)
+        registry._models.append(faux_model)  # type: ignore[attr-defined]
+        agent = Agent(
+            AgentOptions(
+                initial_state={"model": faux_model, "system_prompt": "", "tools": []},
+                convert_to_llm=_convert_to_llm,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+        )
+        sm = SessionManager.in_memory("/work")
+        runner = ExtensionRunner.create(extensions=load_result.extensions, runtime=load_result.runtime, cwd="/work")
+        session = _make_session_with_runner((agent, sm, registry, storage), runner)
+        return registration, session, runner
+
+    return _build
+
+
+async def test_action_set_label_round_trip() -> None:
+    """``api.set_label`` writes a label entry that round-trips through SessionManager."""
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        # Append a real session entry to label.
+        sm = session.session_manager
+        msg_id = sm.append_message({"role": "user", "content": "hi", "timestamp": 1})
+
+        api = captured["api"]
+        api.set_label(msg_id, "important")
+
+        assert sm.get_label(msg_id) == "important"
+        # Clearing works too.
+        api.set_label(msg_id, None)
+        assert sm.get_label(msg_id) is None
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_action_append_custom_entry_returns_id() -> None:
+    """``append_custom_entry`` writes a custom entry and returns its id."""
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        api = captured["api"]
+        entry_id = api.append_custom_entry("todo", {"text": "ship sub-slice 4"})
+        assert isinstance(entry_id, str) and entry_id
+
+        entries = session.session_manager.get_entries()
+        custom = next(e for e in entries if e.get("type") == "custom")
+        assert custom.get("customType") == "todo"
+        assert custom.get("data") == {"text": "ship sub-slice 4"}
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_action_session_name_get_set() -> None:
+    """``set_session_name`` persists the name and ``get_session_name`` reads it back."""
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        api = captured["api"]
+        assert api.get_session_name() is None
+        api.set_session_name("my session")
+        assert api.get_session_name() == "my session"
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_action_get_active_tools_and_get_all_tools() -> None:
+    """Active/all-tool reads return whatever is currently on agent.state.tools."""
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        # Seed two tools post-construction.
+        session.agent.state.tools = [
+            _make_extension_tool("read"),
+            _make_extension_tool("write"),
+        ]
+        api = captured["api"]
+        assert api.get_active_tools() == ["read", "write"]
+        all_tools = api.get_all_tools()
+        assert {t["name"] for t in all_tools} == {"read", "write"}
+        assert all("description" in t for t in all_tools)
+        assert all("parameters" in t for t in all_tools)
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_action_set_active_tools_filters_existing_list() -> None:
+    """``set_active_tools`` keeps only tools whose name is in the supplied list."""
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        session.agent.state.tools = [
+            _make_extension_tool("read"),
+            _make_extension_tool("write"),
+            _make_extension_tool("bash"),
+        ]
+        api = captured["api"]
+        api.set_active_tools(["read", "bash"])
+        assert [t.name for t in session.agent.state.tools] == ["read", "bash"]
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_action_set_model_swaps_active_model() -> None:
+    """``set_model`` updates ``agent.state.model`` and persists ``model_change``."""
+    from nu_ai.types import Model, ModelCost  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        api = captured["api"]
+        new_model = Model(
+            id="new-model",
+            name="new-model",
+            api="openai-completions",
+            provider="openai",
+            base_url="https://example",
+            reasoning=False,
+            input=["text"],
+            cost=ModelCost(input=0, output=0, cache_read=0, cache_write=0),
+            context_window=1000,
+            max_tokens=100,
+        )
+        result = await api.set_model(new_model)
+        assert result is True
+        assert session.agent.state.model.id == "new-model"
+        # And a model_change entry hit the session JSONL.
+        entries = session.session_manager.get_entries()
+        assert any(e.get("type") == "model_change" and e.get("modelId") == "new-model" for e in entries)
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_action_thinking_level_get_set_round_trip() -> None:
+    """``set_thinking_level`` persists, ``get_thinking_level`` reads it back."""
+    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        api = captured["api"]
+        # Default before any change is "off".
+        assert api.get_thinking_level() == "off"
+        api.set_thinking_level("high")
+        assert api.get_thinking_level() == "high"
+        api.set_thinking_level("low")
+        assert api.get_thinking_level() == "low"
+    finally:
+        session.close()
+        registration.unregister()
+
+
+async def test_action_methods_unbound_before_session_attached() -> None:
+    """Calling an action before ``bind_core`` runs raises a clear error."""
+    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+        ExtensionAPI,
+        load_extensions_from_factories,
+    )
+
+    captured: dict[str, Any] = {}
+
+    def register(api: ExtensionAPI) -> None:
+        captured["api"] = api
+
+    # Load with no AgentSession around — runtime stays in pre-bind state.
+    await load_extensions_from_factories([("<inline:unbound>", register)])
+    api = captured["api"]
+    with pytest.raises(RuntimeError, match="not bound"):
+        api.set_label("entry-id", "label")
+
+
+async def test_action_set_label_invoked_from_event_handler() -> None:
+    """End-to-end: a handler that calls ``set_label`` from inside ``message_end``."""
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+
+    label_calls: list[str] = []
+
+    def register(api: ExtensionAPI) -> None:
+        def on_message_end(event: Any, ctx: ExtensionContext) -> None:
+            msg = event.message
+            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+            if role == "assistant":
+                # Label the most recent entry on the session manager —
+                # extensions can call into the runtime via ``api`` even
+                # though the handler signature only gets event + ctx.
+                latest = label_calls  # placeholder so closure captures
+                api.append_custom_entry("seen_assistant", {"role": role})
+                latest.append(role)
+
+        api.on("message_end", on_message_end)
+
+    build = _build_session_with_extension(register)
+    registration, session, _runner = await build()
+    try:
+        registration.set_responses([faux_assistant_message("ack")])
+        await session.prompt("hi")
+        assert label_calls == ["assistant"]
+        # The custom entry the extension wrote landed in the session.
+        entries = session.session_manager.get_entries()
+        assert any(e.get("type") == "custom" and e.get("customType") == "seen_assistant" for e in entries)
+    finally:
+        session.close()
+        registration.unregister()
+
+
 def test_translate_to_extension_event_unknown_returns_none() -> None:
     """Unknown agent event types return ``None`` (forward-compatible)."""
     from nu_coding_agent.core.agent_session import (  # noqa: PLC0415

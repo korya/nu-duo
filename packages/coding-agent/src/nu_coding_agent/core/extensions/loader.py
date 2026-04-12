@@ -133,6 +133,43 @@ class _ExtensionAPI:
             return None
         return self._runtime.flag_values.get(name)
 
+    # ------------------------------------------------------------------
+    # Action methods — delegate to the runtime slots that
+    # ``ExtensionRunner.bind_core`` populates with session-aware
+    # implementations. Until then, the runtime slots are throwing
+    # stubs from ``types._unbound`` so a misuse fires loudly.
+    # ------------------------------------------------------------------
+
+    def set_label(self, entry_id: str, label: str | None) -> None:
+        self._runtime.set_label(entry_id, label)
+
+    def append_custom_entry(self, custom_type: str, data: Any = None) -> str:
+        return self._runtime.append_custom_entry(custom_type, data)
+
+    def set_session_name(self, name: str) -> None:
+        self._runtime.set_session_name(name)
+
+    def get_session_name(self) -> str | None:
+        return self._runtime.get_session_name()
+
+    def get_active_tools(self) -> list[str]:
+        return self._runtime.get_active_tools()
+
+    def get_all_tools(self) -> list[dict[str, Any]]:
+        return self._runtime.get_all_tools()
+
+    def set_active_tools(self, tool_names: list[str]) -> None:
+        self._runtime.set_active_tools(tool_names)
+
+    async def set_model(self, model: Any) -> bool:
+        return await self._runtime.set_model(model)
+
+    def get_thinking_level(self) -> str:
+        return self._runtime.get_thinking_level()
+
+    def set_thinking_level(self, level: str) -> None:
+        self._runtime.set_thinking_level(level)
+
 
 # ---------------------------------------------------------------------------
 # Extension creation

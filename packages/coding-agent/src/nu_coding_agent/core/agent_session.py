@@ -133,6 +133,13 @@ class AgentSession:
         # always observe events that are already on disk.
         self._unsubscribe_agent: Callable[[], None] | None = self._agent.subscribe(self._handle_agent_event)
 
+        # Wire the runtime action methods to this session so attached
+        # extensions can call back into us. Safe to call before any
+        # extensions exist — bind_core just replaces the throwing-stub
+        # action slots on the runtime with bound functions.
+        if self._extension_runner is not None:
+            self._extension_runner.bind_core(self)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------

@@ -240,19 +240,50 @@ class ExtensionContext:
     extension_path: str = "<unknown>"
 
 
+def _unbound(action: str) -> Callable[..., Any]:
+    """Build a stub action that raises until ``ExtensionRunner.bind_core`` runs.
+
+    Mirrors the TS ``createExtensionRuntime``'s "throwing stubs" pattern:
+    extension factories may try to invoke action methods during loading,
+    but the real implementations only become available after the runner
+    is bound to a real :class:`AgentSession`. Calling an action before
+    that fires a clear error rather than silently doing nothing.
+    """
+
+    def stub(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError(
+            f"ExtensionRuntime action {action!r} is not bound — call ExtensionRunner.bind_core(session) first."
+        )
+
+    return stub
+
+
 @dataclass(slots=True)
 class ExtensionRuntime:
-    """Shared mutable state held by the runner.
+    """Shared mutable state + action method slots held by the runner.
 
-    Mirrors a small subset of the TS ``ExtensionRuntime`` interface —
-    just the bits that are useful before the action methods are wired.
-    Flag values, registered tools and the error stream all live here so
-    follow-up slices can layer the action surface on top without
-    breaking the existing call sites.
+    Mirrors a focused subset of the TS ``ExtensionRuntime`` interface.
+    Action method slots default to throwing stubs (:func:`_unbound`)
+    that fire a clear error if an extension calls them before
+    :meth:`ExtensionRunner.bind_core` has wired the real session-aware
+    implementations. Once bound, every call goes straight to the
+    AgentSession.
     """
 
     flag_values: dict[str, bool | str] = field(default_factory=dict)
     pending_provider_registrations: list[dict[str, Any]] = field(default_factory=list)
+
+    # Session-aware action slots populated by ``ExtensionRunner.bind_core``.
+    set_label: Callable[[str, str | None], None] = field(default_factory=lambda: _unbound("set_label"))
+    append_custom_entry: Callable[[str, Any], str] = field(default_factory=lambda: _unbound("append_custom_entry"))
+    set_session_name: Callable[[str], None] = field(default_factory=lambda: _unbound("set_session_name"))
+    get_session_name: Callable[[], str | None] = field(default_factory=lambda: _unbound("get_session_name"))
+    get_active_tools: Callable[[], list[str]] = field(default_factory=lambda: _unbound("get_active_tools"))
+    get_all_tools: Callable[[], list[dict[str, Any]]] = field(default_factory=lambda: _unbound("get_all_tools"))
+    set_active_tools: Callable[[list[str]], None] = field(default_factory=lambda: _unbound("set_active_tools"))
+    set_model: Callable[[Any], Awaitable[bool]] = field(default_factory=lambda: _unbound("set_model"))
+    get_thinking_level: Callable[[], str] = field(default_factory=lambda: _unbound("get_thinking_level"))
+    set_thinking_level: Callable[[str], None] = field(default_factory=lambda: _unbound("set_thinking_level"))
 
 
 # ---------------------------------------------------------------------------
@@ -283,6 +314,30 @@ class ExtensionAPI(Protocol):
     def register_message_renderer(self, custom_type: str, renderer: Any) -> None: ...
 
     def get_flag(self, name: str) -> bool | str | None: ...
+
+    # ------------------------------------------------------------------
+    # Action methods (require ``ExtensionRunner.bind_core`` to be wired)
+    # ------------------------------------------------------------------
+
+    def set_label(self, entry_id: str, label: str | None) -> None: ...
+
+    def append_custom_entry(self, custom_type: str, data: Any = None) -> str: ...
+
+    def set_session_name(self, name: str) -> None: ...
+
+    def get_session_name(self) -> str | None: ...
+
+    def get_active_tools(self) -> list[str]: ...
+
+    def get_all_tools(self) -> list[dict[str, Any]]: ...
+
+    def set_active_tools(self, tool_names: list[str]) -> None: ...
+
+    async def set_model(self, model: Any) -> bool: ...
+
+    def get_thinking_level(self) -> str: ...
+
+    def set_thinking_level(self, level: str) -> None: ...
 
 
 type ExtensionFactory = Callable[[ExtensionAPI], None | Awaitable[None]]
