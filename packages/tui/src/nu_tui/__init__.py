@@ -24,18 +24,26 @@ Pure-logic utilities (already ported in earlier slices):
 """
 
 from nu_tui.component import Component, Container
-from nu_tui.components import Spacer, Text
+from nu_tui.components import Box, SelectItem, SelectList, SelectListTheme, Spacer, Text, TruncatedText
 from nu_tui.terminal import Terminal, TerminalSize
 from nu_tui.tui import TUI, InputListener, InputListenerResult
+from nu_tui.utils import truncate_to_width, visible_width
 
 __all__ = [
     "TUI",
+    "Box",
     "Component",
     "Container",
     "InputListener",
     "InputListenerResult",
+    "SelectItem",
+    "SelectList",
+    "SelectListTheme",
     "Spacer",
     "Terminal",
     "TerminalSize",
     "Text",
+    "TruncatedText",
+    "truncate_to_width",
+    "visible_width",
 ]
