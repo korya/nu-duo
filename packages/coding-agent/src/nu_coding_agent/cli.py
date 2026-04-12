@@ -182,8 +182,9 @@ nu — minimal coding agent CLI (Python port of pi-coding-agent)
 USAGE
   nu [OPTIONS] [PROMPT...]
 
-  When a prompt is provided, runs in print mode by default — sends the
-  prompt, streams the response, and exits.
+  When a prompt is provided, runs in print mode — sends the prompt,
+  streams the response, and exits. When no prompt is given, launches
+  the interactive REPL (Textual-based terminal UI).
 
 OPTIONS
   -p, --print              Single-shot print mode (default when a prompt
@@ -561,10 +562,6 @@ async def async_main(argv: list[str]) -> int:
         print(f"nu {_VERSION}")
         return 0
 
-    if not args.positional:
-        _print_help()
-        return 0
-
     error = _check_credentials(args)
     if error is not None:
         _stderr(error)
@@ -576,7 +573,52 @@ async def async_main(argv: list[str]) -> int:
         _stderr(f"Unknown {args.provider} model id: {target}")
         return 2
 
+    if not args.positional and not args.print_mode:
+        # No prompt supplied and not in --print mode → launch interactive REPL.
+        return await _run_interactive_mode(args, model)
+
     return await _run_print_mode(args, model)
+
+
+async def _run_interactive_mode(args: _Args, model: Model) -> int:
+    """Launch the interactive REPL."""
+    from nu_coding_agent.modes.interactive import run_interactive_mode  # noqa: PLC0415
+
+    cwd = await asyncio.to_thread(_resolve_cwd_sync, args.cwd)
+    tools: list[AgentTool[Any, Any]] = [] if args.no_tools else create_all_tools(cwd)
+
+    system_prompt = build_system_prompt(
+        BuildSystemPromptOptions(
+            custom_prompt=args.system_prompt,
+            tools=tools,
+            cwd=cwd,
+        )
+    )
+
+    initial_state: dict[str, Any] = {
+        "model": model,
+        "tools": tools,
+        "system_prompt": system_prompt,
+    }
+
+    agent = Agent(AgentOptions(initial_state=initial_state))
+
+    auth_storage = _build_auth_storage(args, model)
+    model_registry = ModelRegistry.in_memory(auth_storage)
+    model_registry._models.append(model)  # type: ignore[attr-defined]
+    session_manager = _build_session_manager(args, cwd)
+    session = AgentSession.create(
+        agent=agent,
+        session_manager=session_manager,
+        model_registry=model_registry,
+        auth_storage=auth_storage,
+        cwd=cwd,
+    )
+
+    try:
+        return await run_interactive_mode(session, quiet=args.quiet)
+    finally:
+        await session.shutdown()
 
 
 def main() -> None:

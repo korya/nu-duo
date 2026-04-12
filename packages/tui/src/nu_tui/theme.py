@@ -59,7 +59,6 @@ def _underline(text: str) -> str:
     return f"\033[4m{text}\033[24m"
 
 
-
 def _noop(text: str) -> str:
     return text
 

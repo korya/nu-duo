@@ -143,6 +143,7 @@ omit = [
     # CLI entry point — thin glue around the library, integration-tested
     # via the sample app rather than unit-tested.
     "*/nu_coding_agent/cli.py",
+    "*/nu_coding_agent/modes/interactive/*",
     "*/nu_pods/cli.py",
 ]
 disable_warnings = ["module-not-imported", "no-data-collected"]
