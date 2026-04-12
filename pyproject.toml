@@ -84,6 +84,7 @@ ignore = [
 # nu_mom uses lazy imports extensively + async I/O with pathlib (acceptable)
 "**/nu_mom/**" = ["PLC0415", "ASYNC230", "ASYNC240", "RUF006", "B007", "B904"]
 "**/nu_web_ui/**" = ["PLC0415", "ASYNC109", "ASYNC230", "ASYNC240", "RUF006", "PLW0603", "SIM105"]
+"examples/**" = ["PLC0415", "ASYNC240"]
 
 [tool.ruff.format]
 quote-style = "double"

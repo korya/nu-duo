@@ -40,41 +40,47 @@ checking, lint and tests all run against the entire workspace by default.
 
 ## Examples
 
-The `examples/` directory ships several runnable demos against real LLM
-providers:
+The `examples/` directory ships 12 runnable demos. See
+[`examples/README.md`](examples/README.md) for the full list with
+usage instructions. Highlights:
 
-| File | What it does |
+| File | What it demonstrates |
 |---|---|
-| `one-shot-openai.py` | Minimal single-prompt example against OpenAI `gpt-4o-mini`. Shortest path from import to a working agent. |
-| `one-shot-anthropic.py` | Same shape, but against Anthropic `claude-haiku-4-5`. |
-| `one-shot.py` | Single-prompt sample with provider switching (`--openai`/`--anthropic`), the four core tools wired in, and live streaming output. |
-| `interactive-openai.py` | Minimal multi-turn REPL against OpenAI `gpt-4o-mini`. |
-| `interactive-anthropic.py` | Same, against Anthropic `claude-haiku-4-5`. |
-| `interactive.py` | Multi-turn REPL with provider switching, the four core tools, and live streaming output. |
+| `one-shot-openai.py` | Minimal single-prompt (~30 lines). |
+| `one-shot.py` | Provider switching + tools + streaming. |
+| `interactive.py` | Multi-turn REPL with `/model` command. |
+| `sdk-session.py` | High-level `create_agent_session()` factory — one call builds everything. |
+| `session-continue.py` | Session persistence: run twice to see conversation resume from disk. |
+| `extension-hello.py` | Extension API: lifecycle event hooks (`agent_start`, `message_end`, `session_shutdown`). |
+| `custom-tool.py` | Extension that registers a custom `weather` tool the LLM can call. |
+| `google-provider.py` | Google Gemini via the `google-genai` SDK. |
+| `web-ui-server.py` | FastAPI backend with SQLite + WebSocket + model discovery. |
 
 ```bash
-# One-shot sample (defaults to OpenAI gpt-4o-mini, four core tools wired in)
-just run-example-one-shot
-just run-example-one-shot "summarize the project README in three bullet points"
-just run-example-one-shot --anthropic "explain the agent loop"
-just run-example-one-shot "list TODO comments" /path/to/some/repo
+# Quick start
+uv run python examples/one-shot-openai.py "what is 2+2?"
 
-# Interactive REPL sample (defaults to OpenAI gpt-4o-mini)
-just run-example-interactive
-just run-example-interactive --anthropic
+# Full-featured with tools
+just run-example-one-shot "summarize the project README"
 
-# Single-provider minimal variants (no flag handling, easiest to read)
-uv run python examples/one-shot-openai.py
-uv run python examples/one-shot-anthropic.py "what is the capital of Iceland?"
-uv run python examples/interactive-openai.py
-uv run python examples/interactive-anthropic.py
+# SDK session creation
+uv run python examples/sdk-session.py "list Python files here"
+
+# Session continuation (run twice)
+uv run python examples/session-continue.py "what is 2+2?"
+uv run python examples/session-continue.py "and 3+3?"
+
+# Extensions
+uv run python examples/extension-hello.py
+uv run python examples/custom-tool.py
+
+# Interactive REPL (the full Textual TUI)
+uv run nu
 ```
 
 API keys are loaded from a top-level `.env` file via `python-dotenv` (see
-`.env.example`). `OPENAI_API_KEY` is required for the OpenAI examples,
-`ANTHROPIC_API_KEY` (or `ANTHROPIC_OAUTH_TOKEN`) for the Anthropic ones.
-Override the model id used by `one-shot.py` / `interactive.py` via
-`NU_SAMPLE_OPENAI_MODEL` / `NU_SAMPLE_ANTHROPIC_MODEL`.
+`.env.example`). Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and/or
+`GOOGLE_API_KEY` depending on which examples you want to run.
 
 ## Deviations from pi-mono
 
