@@ -539,7 +539,7 @@ def test_is_using_oauth_false_for_api_key() -> None:
 
 
 def test_is_using_oauth_true_for_oauth_credential() -> None:
-    from nu_coding_agent.core.auth_storage import OAuthCredential  # noqa: PLC0415
+    from nu_coding_agent.core.auth_storage import OAuthCredential
 
     storage = AuthStorage.in_memory(
         {"anthropic": OAuthCredential(type="oauth", access_token="x", refresh_token="r", expires=10**18)}
@@ -685,7 +685,7 @@ def test_refresh_reloads_from_disk(tmp_path: Path) -> None:
 
 def test_oauth_modify_models_hook_runs() -> None:
     """The OAuth registry hook can transform built-in models on load."""
-    from typing import Any  # noqa: PLC0415
+    from typing import Any
 
     storage = AuthStorage.in_memory()
 

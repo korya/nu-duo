@@ -582,7 +582,7 @@ async def test_list_all_empty_when_no_dir(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_session_header_round_trip() -> None:
-    from nu_coding_agent.core.session_manager import SessionHeader  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import SessionHeader
 
     header = SessionHeader(
         id="abc",
@@ -602,7 +602,7 @@ def test_session_header_round_trip() -> None:
 
 
 def test_session_header_to_dict_omits_parent_when_none() -> None:
-    from nu_coding_agent.core.session_manager import SessionHeader  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import SessionHeader
 
     header = SessionHeader(id="x", timestamp="t", cwd="/x")
     payload = header.to_dict()
@@ -700,7 +700,7 @@ def test_persisted_session_info_in_listing(tmp_path: Path) -> None:
 
 
 def _build_session_info_helper(file_path: str):
-    from nu_coding_agent.core.session_manager import (  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import (
         _build_session_info,  # pyright: ignore[reportPrivateUsage]
     )
 

@@ -381,11 +381,11 @@ def test_prepare_compaction_with_previous_compaction() -> None:
 
 
 async def test_generate_summary_with_faux_provider() -> None:
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         register_faux_provider,
     )
-    from nu_coding_agent.core.compaction import generate_summary  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import generate_summary
 
     registration = register_faux_provider()
     try:
@@ -402,11 +402,11 @@ async def test_generate_summary_with_faux_provider() -> None:
 
 
 async def test_generate_summary_uses_update_prompt_with_previous_summary() -> None:
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         register_faux_provider,
     )
-    from nu_coding_agent.core.compaction import generate_summary  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import generate_summary
 
     registration = register_faux_provider()
     try:
@@ -425,11 +425,11 @@ async def test_generate_summary_uses_update_prompt_with_previous_summary() -> No
 
 
 async def test_compact_runs_against_faux_provider() -> None:
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         register_faux_provider,
     )
-    from nu_coding_agent.core.compaction import (  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import (
         CompactionPreparation,
         compact,
         create_file_ops,
@@ -456,11 +456,11 @@ async def test_compact_runs_against_faux_provider() -> None:
 
 
 async def test_compact_split_turn_uses_two_summaries() -> None:
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         register_faux_provider,
     )
-    from nu_coding_agent.core.compaction import (  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import (
         CompactionPreparation,
         compact,
         create_file_ops,
@@ -515,7 +515,7 @@ def test_prepare_compaction_with_compaction_details() -> None:
 
 
 def test_get_message_from_entry_branch_summary() -> None:
-    from nu_coding_agent.core.compaction.compaction import (  # noqa: PLC0415
+    from nu_coding_agent.core.compaction.compaction import (
         _get_message_from_entry,  # pyright: ignore[reportPrivateUsage]
         _get_message_from_entry_for_compaction,  # pyright: ignore[reportPrivateUsage]
     )
@@ -532,7 +532,7 @@ def test_get_message_from_entry_branch_summary() -> None:
 
 
 def test_get_message_from_entry_custom_message() -> None:
-    from nu_coding_agent.core.compaction.compaction import (  # noqa: PLC0415
+    from nu_coding_agent.core.compaction.compaction import (
         _get_message_from_entry,  # pyright: ignore[reportPrivateUsage]
     )
 
@@ -555,7 +555,7 @@ def test_get_message_from_entry_custom_message() -> None:
 
 
 def _model(*, reasoning: bool):
-    from nu_ai.types import Model, ModelCost  # noqa: PLC0415
+    from nu_ai.types import Model, ModelCost
 
     return Model(
         id="m",
@@ -572,8 +572,8 @@ def _model(*, reasoning: bool):
 
 
 async def test_generate_summary_sets_reasoning_high_for_reasoning_models(monkeypatch: Any) -> None:
-    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage  # noqa: PLC0415
-    from nu_coding_agent.core.compaction import compaction as compaction_mod  # noqa: PLC0415
+    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage
+    from nu_coding_agent.core.compaction import compaction as compaction_mod
 
     captured: list[Any] = []
 
@@ -608,8 +608,8 @@ async def test_generate_summary_sets_reasoning_high_for_reasoning_models(monkeyp
 
 
 async def test_generate_summary_omits_reasoning_for_non_reasoning_models(monkeypatch: Any) -> None:
-    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage  # noqa: PLC0415
-    from nu_coding_agent.core.compaction import compaction as compaction_mod  # noqa: PLC0415
+    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage
+    from nu_coding_agent.core.compaction import compaction as compaction_mod
 
     captured: list[Any] = []
 
@@ -645,8 +645,8 @@ async def test_generate_summary_omits_reasoning_for_non_reasoning_models(monkeyp
 
 async def test_turn_prefix_summary_sets_reasoning_high_for_reasoning_models(monkeypatch: Any) -> None:
     """The split-turn helper must propagate the reasoning hint too."""
-    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage  # noqa: PLC0415
-    from nu_coding_agent.core.compaction import compaction as compaction_mod  # noqa: PLC0415
+    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage
+    from nu_coding_agent.core.compaction import compaction as compaction_mod
 
     captured: list[Any] = []
 
@@ -717,7 +717,7 @@ def _compaction_entry(*, summary: str, first_kept_entry_id: str, entry_id: str, 
 
 
 def test_build_session_context_no_compaction_returns_all_messages() -> None:
-    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import build_session_context
 
     entries = [
         _msg_entry("user", "1", entry_id="u1", parent_id=None),
@@ -730,7 +730,7 @@ def test_build_session_context_no_compaction_returns_all_messages() -> None:
 
 
 def test_build_session_context_single_compaction() -> None:
-    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import build_session_context
 
     entries = [
         _msg_entry("user", "1", entry_id="u1", parent_id=None),
@@ -751,7 +751,7 @@ def test_build_session_context_single_compaction() -> None:
 
 
 def test_build_session_context_multiple_compactions_only_latest_matters() -> None:
-    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import build_session_context
 
     entries = [
         _msg_entry("user", "1", entry_id="u1", parent_id=None),
@@ -776,7 +776,7 @@ def test_build_session_context_multiple_compactions_only_latest_matters() -> Non
 
 
 def test_build_session_context_first_kept_at_first_entry_keeps_all() -> None:
-    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import build_session_context
 
     entries = [
         _msg_entry("user", "1", entry_id="u1", parent_id=None),
@@ -826,7 +826,7 @@ _LARGE_SESSION_FIXTURE = Path(__file__).parent / "fixtures" / "large-session.jso
 
 
 def _load_large_session_entries() -> list[dict[str, Any]]:
-    from nu_coding_agent.core.session_manager import (  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import (
         load_entries_from_file,
         migrate_session_entries,
     )
@@ -853,7 +853,7 @@ def test_large_session_fixture_find_cut_point_lands_on_message() -> None:
 
 
 def test_large_session_fixture_build_session_context_round_trip() -> None:
-    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+    from nu_coding_agent.core.session_manager import build_session_context
 
     entries = _load_large_session_entries()
     ctx = build_session_context(entries)

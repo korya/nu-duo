@@ -470,10 +470,10 @@ async def test_register_tool_skips_anonymous_tools() -> None:
 
 def _make_agent_tool(name: str = "todo") -> Any:
     """Build a minimal AgentTool for wrapper round-trip tests."""
-    from nu_agent_core.types import AgentTool, AgentToolResult  # noqa: PLC0415
+    from nu_agent_core.types import AgentTool, AgentToolResult
 
     async def execute(_tool_call_id: str, params: Any, _signal: Any, _on_update: Any) -> AgentToolResult[Any]:
-        from nu_ai.types import TextContent  # noqa: PLC0415
+        from nu_ai.types import TextContent
 
         return AgentToolResult(
             content=[TextContent(text=f"called with {params}")],
@@ -558,7 +558,7 @@ def test_extension_runner_create_context_uses_cwd() -> None:
 
 
 def test_extension_runner_extensions_property_is_a_copy() -> None:
-    from nu_coding_agent.core.source_info import create_synthetic_source_info  # noqa: PLC0415
+    from nu_coding_agent.core.source_info import create_synthetic_source_info
 
     ext = Extension(
         path="<inline:x>",
@@ -580,12 +580,12 @@ def test_extension_api_is_runtime_checkable_protocol() -> None:
     """``isinstance`` against the ``ExtensionAPI`` protocol is the contract
     a TS-shaped factory relies on; pin it so we never accidentally remove
     ``@runtime_checkable``."""
-    from nu_coding_agent.core.extensions.loader import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions.loader import (
         _ExtensionAPI,  # pyright: ignore[reportPrivateUsage]
     )
 
     runtime = ExtensionRuntime()
-    from nu_coding_agent.core.source_info import create_synthetic_source_info  # noqa: PLC0415
+    from nu_coding_agent.core.source_info import create_synthetic_source_info
 
     ext = Extension(
         path="<inline:x>",

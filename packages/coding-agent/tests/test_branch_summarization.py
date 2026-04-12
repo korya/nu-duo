@@ -165,7 +165,7 @@ def test_prepare_branch_entries_skips_hooked_summaries() -> None:
 
 
 async def test_generate_branch_summary_with_faux_provider() -> None:
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         register_faux_provider,
     )
@@ -192,7 +192,7 @@ async def test_generate_branch_summary_with_faux_provider() -> None:
 
 
 async def test_generate_branch_summary_empty_entries() -> None:
-    from nu_ai.providers.faux import register_faux_provider  # noqa: PLC0415
+    from nu_ai.providers.faux import register_faux_provider
 
     registration = register_faux_provider()
     try:
@@ -209,7 +209,7 @@ async def test_generate_branch_summary_empty_entries() -> None:
 
 
 async def test_generate_branch_summary_with_replace_instructions() -> None:
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         register_faux_provider,
     )
@@ -234,7 +234,7 @@ async def test_generate_branch_summary_with_replace_instructions() -> None:
 
 
 async def test_generate_branch_summary_with_appended_instructions() -> None:
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         register_faux_provider,
     )

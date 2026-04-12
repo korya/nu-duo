@@ -315,7 +315,7 @@ async def test_runtime_override_persists_across_get_calls() -> None:
 async def test_oauth_unknown_provider_returns_none() -> None:
     """An OAuth credential whose provider isn't in the registry → ``None``."""
 
-    from typing import Any  # noqa: PLC0415
+    from typing import Any
 
     class _EmptyRegistry:
         def get_provider(self, _provider_id: str) -> Any:
@@ -372,7 +372,7 @@ def test_file_backend_path_property(tmp_path: Path) -> None:
 
 def test_drain_errors_captures_backend_failures() -> None:
     """Trigger a real recorded error by swapping in a backend that always raises."""
-    from typing import Any  # noqa: PLC0415
+    from typing import Any
 
     class _BoomBackend:
         def with_lock(self, fn: Any) -> Any:

@@ -312,8 +312,8 @@ def test_set_model_appends_session_entry(
         agent, sm, _registry, _storage = faux_setup
         original_id = session.model.id  # type: ignore[union-attr]
         # Build a synthetic Model object for the swap.
-        from nu_ai.types import Model as NuModel  # noqa: PLC0415
-        from nu_ai.types import ModelCost  # noqa: PLC0415
+        from nu_ai.types import Model as NuModel
+        from nu_ai.types import ModelCost
 
         new_model = NuModel(
             id="some-other-id",
@@ -500,7 +500,7 @@ def test_session_property_returns_none_for_placeholder() -> None:
 async def test_prompt_with_images_raises_not_implemented(
     faux_setup: tuple[Agent, SessionManager, ModelRegistry, AuthStorage],
 ) -> None:
-    from nu_ai.types import ImageContent  # noqa: PLC0415
+    from nu_ai.types import ImageContent
 
     session = _make_session(faux_setup)
     try:
@@ -567,7 +567,7 @@ async def test_compact_e2e_with_faux_provider() -> None:
                 stream_fn=_make_stream_fn(registration.api),
             )
         )
-        from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
+        from nu_coding_agent.core.compaction import CompactionSettings
 
         session = AgentSession.create(
             agent=agent,
@@ -629,7 +629,7 @@ async def test_compact_raises_when_no_credentials() -> None:
                 stream_fn=_make_stream_fn(registration.api),
             )
         )
-        from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
+        from nu_coding_agent.core.compaction import CompactionSettings
 
         session = AgentSession.create(
             agent=agent,
@@ -744,7 +744,7 @@ def _make_session_with_runner(
 
 async def test_extension_runner_attached_via_create() -> None:
     """``create`` accepts an ``extension_runner`` keyword argument."""
-    from nu_coding_agent.core.extensions import ExtensionRunner  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionRunner
 
     registration = register_faux_provider()
     try:
@@ -777,7 +777,7 @@ async def test_extension_runner_attached_via_create() -> None:
 
 async def test_session_start_emitted_on_first_prompt_only() -> None:
     """``session_start`` fires once on the first prompt, never again."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         SessionStartEvent,
@@ -830,7 +830,7 @@ async def test_session_start_emitted_on_first_prompt_only() -> None:
 
 async def test_lifecycle_events_dispatched_during_prompt() -> None:
     """All ten lifecycle event types reach the extension runner from a real prompt."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         load_extensions_from_factories,
@@ -894,7 +894,7 @@ async def test_lifecycle_events_dispatched_during_prompt() -> None:
 
 async def test_extension_event_payload_carries_message() -> None:
     """``message_end`` events expose the assistant message to extensions."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionContext,
         ExtensionRunner,
@@ -946,7 +946,7 @@ async def test_extension_event_payload_carries_message() -> None:
 
 async def test_dispatch_order_persist_then_extensions_then_listeners() -> None:
     """Persistence runs before extension dispatch which runs before user listeners."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionContext,
         ExtensionRunner,
@@ -1009,7 +1009,7 @@ async def test_dispatch_order_persist_then_extensions_then_listeners() -> None:
 
 async def test_shutdown_emits_session_shutdown_then_closes() -> None:
     """``shutdown()`` broadcasts session_shutdown then unsubscribes."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         SessionShutdownEvent,
@@ -1067,7 +1067,7 @@ async def test_shutdown_without_first_prompt_skips_shutdown_event() -> None:
     never started, it has nothing to shut down. The agent listener is
     still detached so calling ``shutdown()`` is always safe.
     """
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         load_extensions_from_factories,
@@ -1137,7 +1137,7 @@ async def test_shutdown_works_without_runner() -> None:
 
 async def test_extension_handler_exception_does_not_break_user_listener() -> None:
     """A broken extension handler must not prevent user listeners from running."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionContext,
         ExtensionRunner,
@@ -1192,8 +1192,8 @@ async def test_extension_handler_exception_does_not_break_user_listener() -> Non
 
 def _make_extension_tool(name: str, *, marker: str = "called") -> Any:
     """Build an :class:`AgentTool` instance suitable for ``api.register_tool``."""
-    from nu_agent_core.types import AgentTool, AgentToolResult  # noqa: PLC0415
-    from nu_ai.types import TextContent  # noqa: PLC0415
+    from nu_agent_core.types import AgentTool, AgentToolResult
+    from nu_ai.types import TextContent
 
     async def execute(_tool_call_id: str, params: Any, _signal: Any, _on_update: Any) -> AgentToolResult[Any]:
         return AgentToolResult(
@@ -1245,7 +1245,7 @@ async def test_apply_extension_tools_no_runner_is_noop() -> None:
 
 async def test_apply_extension_tools_appends_extension_tools() -> None:
     """Extension-registered tools land in agent.state.tools after merge."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         load_extensions_from_factories,
@@ -1287,7 +1287,7 @@ async def test_apply_extension_tools_appends_extension_tools() -> None:
 
 async def test_apply_extension_tools_overrides_builtin_by_name() -> None:
     """An extension tool whose name matches a built-in *replaces* the built-in."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         load_extensions_from_factories,
@@ -1318,7 +1318,7 @@ async def test_apply_extension_tools_overrides_builtin_by_name() -> None:
 
         session.apply_extension_tools()
         assert len(agent.state.tools) == 1
-        from nu_ai.types import TextContent  # noqa: PLC0415
+        from nu_ai.types import TextContent
 
         result = await agent.state.tools[0].execute("tc1", {"x": 1}, None, None)
         text_block = next(b for b in result.content if isinstance(b, TextContent))
@@ -1330,7 +1330,7 @@ async def test_apply_extension_tools_overrides_builtin_by_name() -> None:
 
 async def test_apply_extension_tools_is_idempotent() -> None:
     """Calling ``apply_extension_tools`` twice does not duplicate tools."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         load_extensions_from_factories,
@@ -1371,11 +1371,11 @@ async def test_apply_extension_tools_is_idempotent() -> None:
 
 async def test_extension_tool_invoked_by_agent_loop() -> None:
     """End-to-end: extension-registered tool is actually called by the agent loop."""
-    from nu_ai.providers.faux import (  # noqa: PLC0415
+    from nu_ai.providers.faux import (
         faux_assistant_message,
         faux_tool_call,
     )
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionRunner,
         load_extensions_from_factories,
@@ -1384,8 +1384,8 @@ async def test_extension_tool_invoked_by_agent_loop() -> None:
     invocation_count = 0
 
     def register(api: ExtensionAPI) -> None:
-        from nu_agent_core.types import AgentTool, AgentToolResult  # noqa: PLC0415
-        from nu_ai.types import TextContent  # noqa: PLC0415
+        from nu_agent_core.types import AgentTool, AgentToolResult
+        from nu_ai.types import TextContent
 
         async def execute(_tcid: str, params: Any, _sig: Any, _upd: Any) -> AgentToolResult[Any]:
             nonlocal invocation_count
@@ -1463,7 +1463,7 @@ async def test_extension_tool_invoked_by_agent_loop() -> None:
 
 def _build_session_with_extension(setup_factory: Any) -> Any:
     """Build (registration, session, runner) for an action-method test."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionRunner,
         load_extensions_from_factories,
     )
@@ -1492,7 +1492,7 @@ def _build_session_with_extension(setup_factory: Any) -> Any:
 
 async def test_action_set_label_round_trip() -> None:
     """``api.set_label`` writes a label entry that round-trips through SessionManager."""
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     captured: dict[str, Any] = {}
 
@@ -1520,7 +1520,7 @@ async def test_action_set_label_round_trip() -> None:
 
 async def test_action_append_custom_entry_returns_id() -> None:
     """``append_custom_entry`` writes a custom entry and returns its id."""
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     captured: dict[str, Any] = {}
 
@@ -1545,7 +1545,7 @@ async def test_action_append_custom_entry_returns_id() -> None:
 
 async def test_action_session_name_get_set() -> None:
     """``set_session_name`` persists the name and ``get_session_name`` reads it back."""
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     captured: dict[str, Any] = {}
 
@@ -1566,7 +1566,7 @@ async def test_action_session_name_get_set() -> None:
 
 async def test_action_get_active_tools_and_get_all_tools() -> None:
     """Active/all-tool reads return whatever is currently on agent.state.tools."""
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     captured: dict[str, Any] = {}
 
@@ -1594,7 +1594,7 @@ async def test_action_get_active_tools_and_get_all_tools() -> None:
 
 async def test_action_set_active_tools_filters_existing_list() -> None:
     """``set_active_tools`` keeps only tools whose name is in the supplied list."""
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     captured: dict[str, Any] = {}
 
@@ -1619,8 +1619,8 @@ async def test_action_set_active_tools_filters_existing_list() -> None:
 
 async def test_action_set_model_swaps_active_model() -> None:
     """``set_model`` updates ``agent.state.model`` and persists ``model_change``."""
-    from nu_ai.types import Model, ModelCost  # noqa: PLC0415
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_ai.types import Model, ModelCost
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     captured: dict[str, Any] = {}
 
@@ -1656,7 +1656,7 @@ async def test_action_set_model_swaps_active_model() -> None:
 
 async def test_action_thinking_level_get_set_round_trip() -> None:
     """``set_thinking_level`` persists, ``get_thinking_level`` reads it back."""
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     captured: dict[str, Any] = {}
 
@@ -1680,7 +1680,7 @@ async def test_action_thinking_level_get_set_round_trip() -> None:
 
 async def test_action_methods_unbound_before_session_attached() -> None:
     """Calling an action before ``bind_core`` runs raises a clear error."""
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         load_extensions_from_factories,
     )
@@ -1699,7 +1699,7 @@ async def test_action_methods_unbound_before_session_attached() -> None:
 
 async def test_action_set_label_invoked_from_event_handler() -> None:
     """End-to-end: a handler that calls ``set_label`` from inside ``message_end``."""
-    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext
 
     label_calls: list[str] = []
 
@@ -1764,9 +1764,9 @@ def _seed_compactable_session(session: AgentSession) -> None:
 
 async def test_compact_emits_session_compact_event() -> None:
     """Standard compaction path fires ``session_compact`` after persisting."""
-    from nu_ai.providers.faux import faux_assistant_message  # noqa: PLC0415
-    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
-    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+    from nu_ai.providers.faux import faux_assistant_message
+    from nu_coding_agent.core.compaction import CompactionSettings
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext
 
     seen: list[Any] = []
 
@@ -1803,8 +1803,8 @@ async def test_compact_emits_session_compact_event() -> None:
 
 async def test_before_compact_handler_can_cancel() -> None:
     """A handler that returns ``cancel=True`` aborts the compaction entirely."""
-    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import CompactionSettings
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionContext,
         SessionBeforeCompactResult,
@@ -1838,12 +1838,12 @@ async def test_before_compact_handler_can_cancel() -> None:
 
 async def test_before_compact_handler_can_provide_custom_result() -> None:
     """A handler can supply a custom ``CompactionResult`` to bypass the LLM."""
-    from nu_coding_agent.core.compaction import (  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import (
         CompactionDetails,
         CompactionResult,
         CompactionSettings,
     )
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         ExtensionAPI,
         ExtensionContext,
         SessionBeforeCompactResult,
@@ -1894,9 +1894,9 @@ async def test_before_compact_handler_can_provide_custom_result() -> None:
 
 async def test_before_compact_handler_returning_none_falls_through() -> None:
     """A handler that observes-only (returns None) leaves the standard path intact."""
-    from nu_ai.providers.faux import faux_assistant_message  # noqa: PLC0415
-    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
-    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+    from nu_ai.providers.faux import faux_assistant_message
+    from nu_coding_agent.core.compaction import CompactionSettings
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext
 
     observed: list[Any] = []
 
@@ -1929,8 +1929,8 @@ async def test_before_compact_handler_returning_none_falls_through() -> None:
 
 async def test_before_compact_dict_result_form_supported() -> None:
     """Handlers may return a plain dict instead of a SessionBeforeCompactResult."""
-    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
-    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import CompactionSettings
+    from nu_coding_agent.core.extensions import ExtensionAPI, ExtensionContext
 
     def register(api: ExtensionAPI) -> None:
         def handler(event: Any, ctx: ExtensionContext) -> dict[str, Any]:
@@ -1955,9 +1955,9 @@ async def test_before_compact_dict_result_form_supported() -> None:
 
 async def test_compact_no_handlers_uses_standard_path() -> None:
     """Sessions without compaction-extension handlers fall back to LLM compaction."""
-    from nu_ai.providers.faux import faux_assistant_message  # noqa: PLC0415
-    from nu_coding_agent.core.compaction import CompactionSettings  # noqa: PLC0415
-    from nu_coding_agent.core.extensions import ExtensionAPI  # noqa: PLC0415
+    from nu_ai.providers.faux import faux_assistant_message
+    from nu_coding_agent.core.compaction import CompactionSettings
+    from nu_coding_agent.core.extensions import ExtensionAPI
 
     def register(api: ExtensionAPI) -> None:
         # Register a handler for an unrelated event so the runner has
@@ -1983,10 +1983,10 @@ async def test_compact_no_handlers_uses_standard_path() -> None:
 
 async def test_normalize_before_compact_result_helper() -> None:
     """The helper accepts dataclass, dict, and None forms."""
-    from nu_coding_agent.core.agent_session import (  # noqa: PLC0415
+    from nu_coding_agent.core.agent_session import (
         _normalize_before_compact_result,  # pyright: ignore[reportPrivateUsage]
     )
-    from nu_coding_agent.core.extensions import SessionBeforeCompactResult  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import SessionBeforeCompactResult
 
     assert _normalize_before_compact_result(None) == (False, None)
     assert _normalize_before_compact_result({"cancel": True}) == (True, None)
@@ -2000,7 +2000,7 @@ async def test_normalize_before_compact_result_helper() -> None:
 
 def test_translate_to_extension_event_unknown_returns_none() -> None:
     """Unknown agent event types return ``None`` (forward-compatible)."""
-    from nu_coding_agent.core.agent_session import (  # noqa: PLC0415
+    from nu_coding_agent.core.agent_session import (
         _translate_to_extension_event,  # pyright: ignore[reportPrivateUsage]
     )
 
@@ -2009,10 +2009,10 @@ def test_translate_to_extension_event_unknown_returns_none() -> None:
 
 def test_translate_to_extension_event_covers_all_known_types() -> None:
     """Spot-check the translation table for every documented event type."""
-    from nu_coding_agent.core.agent_session import (  # noqa: PLC0415
+    from nu_coding_agent.core.agent_session import (
         _translate_to_extension_event,  # pyright: ignore[reportPrivateUsage]
     )
-    from nu_coding_agent.core.extensions import (  # noqa: PLC0415
+    from nu_coding_agent.core.extensions import (
         AgentEndEvent,
         AgentStartEvent,
         MessageEndEvent,

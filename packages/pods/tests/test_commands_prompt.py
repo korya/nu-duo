@@ -131,7 +131,7 @@ async def test_prompt_model_default_launcher_dispatches_to_nu_cli(
         captured_argv.append(list(argv))
         return 42
 
-    import nu_coding_agent.cli as nu_cli  # noqa: PLC0415
+    import nu_coding_agent.cli as nu_cli
 
     monkeypatch.setattr(nu_cli, "async_main", fake_async_main)
 

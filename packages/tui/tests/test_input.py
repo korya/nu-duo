@@ -315,7 +315,7 @@ def test_render_with_text_includes_value() -> None:
     assert len(lines) == 1
     # The first char is wrapped in reverse-video escapes, so check
     # that the raw content is present after stripping ANSI.
-    from nu_tui.utils import ANSI_ESCAPE_RE  # noqa: PLC0415
+    from nu_tui.utils import ANSI_ESCAPE_RE
 
     stripped = ANSI_ESCAPE_RE.sub("", lines[0])
     assert "hello" in stripped
@@ -326,7 +326,7 @@ def test_render_focused_includes_cursor_marker() -> None:
     inp.focused = True
     inp.set_value("hi")
     lines = inp.render(40)
-    from nu_tui.utils import CURSOR_MARKER  # noqa: PLC0415
+    from nu_tui.utils import CURSOR_MARKER
 
     assert CURSOR_MARKER in lines[0]
 
@@ -336,6 +336,6 @@ def test_render_unfocused_no_cursor_marker() -> None:
     inp.focused = False
     inp.set_value("hi")
     lines = inp.render(40)
-    from nu_tui.utils import CURSOR_MARKER  # noqa: PLC0415
+    from nu_tui.utils import CURSOR_MARKER
 
     assert CURSOR_MARKER not in lines[0]

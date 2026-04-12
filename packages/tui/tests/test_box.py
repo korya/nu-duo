@@ -64,7 +64,7 @@ def test_box_remove_unknown_child_is_noop() -> None:
 
 
 def test_box_invalidate_cascades_to_children() -> None:
-    from nu_tui.component import Component  # noqa: PLC0415
+    from nu_tui.component import Component
 
     invalidated: list[str] = []
 
