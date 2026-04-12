@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from nu_coding_agent.core.compaction import (
@@ -543,3 +544,318 @@ def test_get_message_from_entry_custom_message() -> None:
         "timestamp": "2026-01-01T00:00:00.000Z",
     }
     assert _get_message_from_entry(custom) is not None
+
+
+# ---------------------------------------------------------------------------
+# Reasoning level propagation — direct port of upstream
+# compaction-summary-reasoning.test.ts. Verifies the bug fix that landed
+# alongside the audit: generate_summary used to drop the reasoning="high"
+# hint for reasoning-capable models.
+# ---------------------------------------------------------------------------
+
+
+def _model(*, reasoning: bool):
+    from nu_ai.types import Model, ModelCost  # noqa: PLC0415
+
+    return Model(
+        id="m",
+        name="m",
+        api="openai-completions",
+        provider="openai",
+        base_url="https://example",
+        reasoning=reasoning,
+        input=["text"],
+        cost=ModelCost(input=0, output=0, cache_read=0, cache_write=0),
+        context_window=200_000,
+        max_tokens=8_192,
+    )
+
+
+async def test_generate_summary_sets_reasoning_high_for_reasoning_models(monkeypatch: Any) -> None:
+    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import compaction as compaction_mod  # noqa: PLC0415
+
+    captured: list[Any] = []
+
+    async def fake_complete_simple(model: Any, context: Any, options: Any):
+        captured.append(options)
+        return AssistantMessage(
+            content=[TextContent(text="## Goal\nTest")],
+            api="openai-completions",
+            provider="openai",
+            model="m",
+            usage=Usage(
+                input=0,
+                output=0,
+                cache_read=0,
+                cache_write=0,
+                total_tokens=0,
+                cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+            ),
+            stop_reason="stop",
+            timestamp=1,
+        )
+
+    monkeypatch.setattr(compaction_mod, "complete_simple", fake_complete_simple)
+    await compaction_mod.generate_summary(
+        current_messages=[{"role": "user", "content": "Summarize this"}],
+        model=_model(reasoning=True),
+        reserve_tokens=2000,
+        api_key="k",
+    )
+    assert len(captured) == 1
+    assert captured[0].reasoning == "high"
+
+
+async def test_generate_summary_omits_reasoning_for_non_reasoning_models(monkeypatch: Any) -> None:
+    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import compaction as compaction_mod  # noqa: PLC0415
+
+    captured: list[Any] = []
+
+    async def fake_complete_simple(model: Any, context: Any, options: Any):
+        captured.append(options)
+        return AssistantMessage(
+            content=[TextContent(text="## Goal\nTest")],
+            api="openai-completions",
+            provider="openai",
+            model="m",
+            usage=Usage(
+                input=0,
+                output=0,
+                cache_read=0,
+                cache_write=0,
+                total_tokens=0,
+                cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+            ),
+            stop_reason="stop",
+            timestamp=1,
+        )
+
+    monkeypatch.setattr(compaction_mod, "complete_simple", fake_complete_simple)
+    await compaction_mod.generate_summary(
+        current_messages=[{"role": "user", "content": "Summarize this"}],
+        model=_model(reasoning=False),
+        reserve_tokens=2000,
+        api_key="k",
+    )
+    assert len(captured) == 1
+    assert captured[0].reasoning is None
+
+
+async def test_turn_prefix_summary_sets_reasoning_high_for_reasoning_models(monkeypatch: Any) -> None:
+    """The split-turn helper must propagate the reasoning hint too."""
+    from nu_ai.types import AssistantMessage, Cost, TextContent, Usage  # noqa: PLC0415
+    from nu_coding_agent.core.compaction import compaction as compaction_mod  # noqa: PLC0415
+
+    captured: list[Any] = []
+
+    async def fake_complete_simple(model: Any, context: Any, options: Any):
+        captured.append(options)
+        return AssistantMessage(
+            content=[TextContent(text="prefix summary")],
+            api="openai-completions",
+            provider="openai",
+            model="m",
+            usage=Usage(
+                input=0,
+                output=0,
+                cache_read=0,
+                cache_write=0,
+                total_tokens=0,
+                cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+            ),
+            stop_reason="stop",
+            timestamp=1,
+        )
+
+    monkeypatch.setattr(compaction_mod, "complete_simple", fake_complete_simple)
+    # _generate_turn_prefix_summary is private but exercised via ``compact``
+    # whenever ``preparation.is_split_turn`` is True with prefix messages.
+    prep = compaction_mod.CompactionPreparation(
+        first_kept_entry_id="kept",
+        messages_to_summarize=[{"role": "user", "content": "old"}],
+        turn_prefix_messages=[{"role": "user", "content": "prefix"}],
+        is_split_turn=True,
+        tokens_before=10,
+        file_ops=create_file_ops(),
+        settings=DEFAULT_COMPACTION_SETTINGS,
+    )
+    await compaction_mod.compact(prep, _model(reasoning=True), "k")
+    # Two complete_simple calls: history summary + turn prefix summary.
+    assert len(captured) == 2
+    assert all(opts.reasoning == "high" for opts in captured)
+
+
+# ---------------------------------------------------------------------------
+# build_session_context — multi-compaction scenarios. Direct ports of the
+# `buildSessionContext` describe block in upstream compaction.test.ts.
+# ---------------------------------------------------------------------------
+
+
+def _msg_entry(role: str, text: str, *, entry_id: str, parent_id: str | None) -> dict[str, Any]:
+    """Compact builder used by the multi-compaction tests below."""
+    return {
+        "type": "message",
+        "id": entry_id,
+        "parentId": parent_id,
+        "timestamp": "t",
+        "message": {"role": role, "content": text},
+    }
+
+
+def _compaction_entry(*, summary: str, first_kept_entry_id: str, entry_id: str, parent_id: str) -> dict[str, Any]:
+    return {
+        "type": "compaction",
+        "id": entry_id,
+        "parentId": parent_id,
+        "timestamp": "2024-01-01T00:00:00.000Z",
+        "summary": summary,
+        "firstKeptEntryId": first_kept_entry_id,
+        "tokensBefore": 0,
+    }
+
+
+def test_build_session_context_no_compaction_returns_all_messages() -> None:
+    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+
+    entries = [
+        _msg_entry("user", "1", entry_id="u1", parent_id=None),
+        _msg_entry("assistant", "a", entry_id="a1", parent_id="u1"),
+        _msg_entry("user", "2", entry_id="u2", parent_id="a1"),
+        _msg_entry("assistant", "b", entry_id="a2", parent_id="u2"),
+    ]
+    ctx = build_session_context(entries)
+    assert len(ctx.messages) == 4
+
+
+def test_build_session_context_single_compaction() -> None:
+    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+
+    entries = [
+        _msg_entry("user", "1", entry_id="u1", parent_id=None),
+        _msg_entry("assistant", "a", entry_id="a1", parent_id="u1"),
+        _msg_entry("user", "2", entry_id="u2", parent_id="a1"),
+        _msg_entry("assistant", "b", entry_id="a2", parent_id="u2"),
+        _compaction_entry(summary="Summary of 1,a,2,b", first_kept_entry_id="u2", entry_id="c1", parent_id="a2"),
+        _msg_entry("user", "3", entry_id="u3", parent_id="c1"),
+        _msg_entry("assistant", "c", entry_id="a3", parent_id="u3"),
+    ]
+    ctx = build_session_context(entries)
+    # compaction summary + kept (u2, a2) + after (u3, a3) = 5
+    assert len(ctx.messages) == 5
+    first = ctx.messages[0]
+    summary = getattr(first, "summary", None) or (first.get("summary") if isinstance(first, dict) else None)
+    assert summary is not None
+    assert "Summary of 1,a,2,b" in summary
+
+
+def test_build_session_context_multiple_compactions_only_latest_matters() -> None:
+    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+
+    entries = [
+        _msg_entry("user", "1", entry_id="u1", parent_id=None),
+        _msg_entry("assistant", "a", entry_id="a1", parent_id="u1"),
+        _compaction_entry(summary="First summary", first_kept_entry_id="u1", entry_id="c1", parent_id="a1"),
+        _msg_entry("user", "2", entry_id="u2", parent_id="c1"),
+        _msg_entry("assistant", "b", entry_id="b", parent_id="u2"),
+        _msg_entry("user", "3", entry_id="u3", parent_id="b"),
+        _msg_entry("assistant", "c", entry_id="c", parent_id="u3"),
+        _compaction_entry(summary="Second summary", first_kept_entry_id="u3", entry_id="c2", parent_id="c"),
+        _msg_entry("user", "4", entry_id="u4", parent_id="c2"),
+        _msg_entry("assistant", "d", entry_id="d", parent_id="u4"),
+    ]
+    ctx = build_session_context(entries)
+    # Second summary + kept from u3 (u3, c) + after (u4, d) = 5
+    assert len(ctx.messages) == 5
+    first = ctx.messages[0]
+    summary = getattr(first, "summary", None) or (first.get("summary") if isinstance(first, dict) else None)
+    assert summary is not None
+    assert "Second summary" in summary
+    assert "First summary" not in summary
+
+
+def test_build_session_context_first_kept_at_first_entry_keeps_all() -> None:
+    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+
+    entries = [
+        _msg_entry("user", "1", entry_id="u1", parent_id=None),
+        _msg_entry("assistant", "a", entry_id="a1", parent_id="u1"),
+        _compaction_entry(summary="First summary", first_kept_entry_id="u1", entry_id="c1", parent_id="a1"),
+        _msg_entry("user", "2", entry_id="u2", parent_id="c1"),
+        _msg_entry("assistant", "b", entry_id="b", parent_id="u2"),
+    ]
+    ctx = build_session_context(entries)
+    # summary + (u1, a1, u2, b) = 5
+    assert len(ctx.messages) == 5
+
+
+# ---------------------------------------------------------------------------
+# Cut point — split-turn detection
+# ---------------------------------------------------------------------------
+
+
+def test_find_cut_point_indicates_split_turn() -> None:
+    """Cutting in the middle of a turn must flag is_split_turn + turn_start_index."""
+    entries: list[dict[str, Any]] = [
+        # Turn 1
+        _entry("message", role="user", content="Turn 1", entry_id="u1"),
+        _entry("message", role="assistant", content="A1", entry_id="a1", parent_id="u1"),
+        # Turn 2 — multiple assistant messages, the last few will fall in the
+        # "keep recent" window and force a cut at an assistant entry.
+        _entry("message", role="user", content="Turn 2", entry_id="u2", parent_id="a1"),
+        _entry("message", role="assistant", content="A2-1" * 200, entry_id="a2_1", parent_id="u2"),
+        _entry("message", role="assistant", content="A2-2" * 200, entry_id="a2_2", parent_id="a2_1"),
+        _entry("message", role="assistant", content="A2-3" * 200, entry_id="a2_3", parent_id="a2_2"),
+    ]
+    result = find_cut_point(entries, 0, len(entries), 300)
+    cut_entry = entries[result.first_kept_entry_index]
+    if cut_entry["message"]["role"] == "assistant":
+        assert result.is_split_turn is True
+        assert result.turn_start_index == 2  # Turn 2 starts at index 2 (u2)
+
+
+# ---------------------------------------------------------------------------
+# Large session fixture round-trip — direct port of the "Large session
+# fixture" describe block. The fixture itself is vendored verbatim from
+# upstream so it round-trips identically through both implementations.
+# ---------------------------------------------------------------------------
+
+
+_LARGE_SESSION_FIXTURE = Path(__file__).parent / "fixtures" / "large-session.jsonl"
+
+
+def _load_large_session_entries() -> list[dict[str, Any]]:
+    from nu_coding_agent.core.session_manager import (  # noqa: PLC0415
+        load_entries_from_file,
+        migrate_session_entries,
+    )
+
+    entries = load_entries_from_file(str(_LARGE_SESSION_FIXTURE))
+    migrate_session_entries(entries)
+    return entries
+
+
+def test_large_session_fixture_parses() -> None:
+    entries = _load_large_session_entries()
+    assert len(entries) > 100
+    message_count = sum(1 for e in entries if e.get("type") == "message")
+    assert message_count > 100
+
+
+def test_large_session_fixture_find_cut_point_lands_on_message() -> None:
+    entries = _load_large_session_entries()
+    result = find_cut_point(entries, 0, len(entries), DEFAULT_COMPACTION_SETTINGS.keep_recent_tokens)
+    cut_entry = entries[result.first_kept_entry_index]
+    assert cut_entry.get("type") == "message"
+    role = cut_entry.get("message", {}).get("role")
+    assert role in ("user", "assistant")
+
+
+def test_large_session_fixture_build_session_context_round_trip() -> None:
+    from nu_coding_agent.core.session_manager import build_session_context  # noqa: PLC0415
+
+    entries = _load_large_session_entries()
+    ctx = build_session_context(entries)
+    assert len(ctx.messages) > 100
+    assert ctx.model is not None

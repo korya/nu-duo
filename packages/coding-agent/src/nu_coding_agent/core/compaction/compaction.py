@@ -488,7 +488,14 @@ async def generate_summary(
         )
     ]
 
-    options = SimpleStreamOptions(max_tokens=max_tokens, api_key=api_key, headers=headers)
+    # Reasoning-capable models get reasoning="high" so the summarization
+    # call benefits from extended thinking. Mirrors TS generateSummary.
+    options = SimpleStreamOptions(
+        max_tokens=max_tokens,
+        api_key=api_key,
+        headers=headers,
+        reasoning="high" if model.reasoning else None,
+    )
     response = await complete_simple(
         model,
         Context(system_prompt=SUMMARIZATION_SYSTEM_PROMPT, messages=summarization_messages),
@@ -517,7 +524,13 @@ async def _generate_turn_prefix_summary(
     summarization_messages: list[Message] = [
         UserMessage(content=[TextContent(text=prompt_text)], timestamp=int(time.time() * 1000))
     ]
-    options = SimpleStreamOptions(max_tokens=max_tokens, api_key=api_key, headers=headers)
+    # Same reasoning="high" propagation as generate_summary above.
+    options = SimpleStreamOptions(
+        max_tokens=max_tokens,
+        api_key=api_key,
+        headers=headers,
+        reasoning="high" if model.reasoning else None,
+    )
     response = await complete_simple(
         model,
         Context(system_prompt=SUMMARIZATION_SYSTEM_PROMPT, messages=summarization_messages),
