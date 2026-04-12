@@ -1,31 +1,29 @@
-"""Interactive REPL for ``nu`` — Phase 5.7 (streaming + markdown + compaction + extensions).
+"""Interactive REPL for ``nu`` — Phase 5.9 (nu_tui component tree wiring).
 
-Textual-based terminal UI. Improvements over the Phase 5.6 skeleton:
+The interactive mode now renders through the nu_tui component library:
 
-* **Streaming text deltas** — assistant text renders live as the LLM
-  produces it via ``message_update`` events carrying ``text_delta``.
-* **Rich Markdown rendering** — each completed assistant message is
-  re-rendered through Rich Markdown for headings, code blocks (with
-  syntax highlighting), bold, italic, lists, etc.
-* **Auto-compaction** — after each turn, ``should_compact()`` is
-  checked; when true, ``session.compact()`` runs in the background
-  and a ``[compacted]`` indicator is shown.
-* **Extension hooks** — the CLI wiring creates the AgentSession with
-  an ``extension_runner`` when extensions are loaded, so lifecycle
-  hooks (session_start, agent_start/end, message_start/update/end,
-  tool_execution_start/end, session_shutdown) fire during interactive
-  turns.
-* **Slash commands** — ``/exit``, ``/model``, ``/compact``, ``/clear``,
-  ``/session``, ``/help`` (documented in the input placeholder).
-* **Thinking indicator** — a ``⠋ Thinking...`` Loader widget appears
-  while the agent is streaming and disappears when the turn ends.
+* **Assistant messages** render via ``nu_tui.components.Markdown``,
+  hosted in a ``ComponentWidget``. During streaming, the widget
+  re-renders on each text delta; on completion it finalizes as
+  Rich Markdown with syntax-highlighted code blocks.
+* **User messages** render via ``nu_tui.components.Text`` in a
+  ``ComponentWidget``.
+* **Tool calls** and **info messages** render via ``nu_tui.components.Text``.
+* **Thinking indicator** renders via ``nu_tui.components.Loader``
+  in a ``ComponentWidget`` with animated spinner.
 
-Still deferred:
+The Textual layout system (VerticalScroll, Header, Footer, Input,
+ModalScreen) is preserved — it handles scrolling, focus, and modals.
+The nu_tui components are bridged into Textual via ``ComponentWidget``,
+which calls ``component.render(width)`` on each paint cycle. This
+hybrid approach gets both Textual's robust layout AND upstream-shaped
+component rendering.
 
-* nu_tui component tree wiring (renders via Textual widgets directly).
-* Session selectors, model pickers, theme pickers, settings panels.
-* Overlay dialogs (login, extensions).
-* Full slash command expansion from upstream.
+The remaining Textual-native widget is the prompt ``Input`` at the
+bottom. Replacing it with a ``ComponentWidget(Editor(...))`` is
+possible but requires non-trivial focus/key routing work — deferred
+to a follow-up when the full Editor integration is needed (e.g. for
+multi-line prompt entry with Shift+Enter).
 """
 
 from __future__ import annotations
@@ -33,59 +31,60 @@ from __future__ import annotations
 import sys
 from typing import TYPE_CHECKING, Any
 
-from rich.markdown import Markdown as RichMarkdown
-from rich.text import Text as RichText
+from nu_tui.component_widget import ComponentWidget
+from nu_tui.components import Markdown as NuMarkdown
+from nu_tui.components import Text as NuText
+from nu_tui.components.loader import Loader as NuLoader
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Footer, Header, Input, Static
+from textual.widgets import Footer, Header, Input
 
 if TYPE_CHECKING:
     from nu_coding_agent.core.agent_session import AgentSession
 
 
-class _MessageWidget(Static):
-    """A single message in the conversation history."""
+class _StreamingComponentWidget(ComponentWidget):
+    """ComponentWidget that accumulates streaming text deltas.
 
-    DEFAULT_CSS = """
-    _MessageWidget {
-        padding: 0 1;
-        margin: 0 0 1 0;
-    }
+    During streaming, the wrapped ``Text`` component is updated with
+    each delta. On finalization, the component is swapped to a
+    ``Markdown`` for rich rendering.
     """
 
-
-class _StreamingWidget(Static):
-    """Widget that accumulates streaming text deltas and re-renders live."""
-
     DEFAULT_CSS = """
-    _StreamingWidget {
+    _StreamingComponentWidget {
+        width: 1fr;
+        height: auto;
         padding: 0 1;
         margin: 0 0 1 0;
     }
     """
 
     def __init__(self) -> None:
-        super().__init__("")
+        self._text_component = NuText("")
+        super().__init__(self._text_component)
         self._chunks: list[str] = []
 
     def append_delta(self, delta: str) -> None:
-        """Append a text delta and refresh the display."""
+        """Append a text delta and refresh."""
         self._chunks.append(delta)
-        self.update(RichText("".join(self._chunks)))
+        self._text_component.set_text("".join(self._chunks))
+        self.refresh_component()
 
     def get_text(self) -> str:
         return "".join(self._chunks)
 
     def finalize_as_markdown(self) -> None:
-        """Re-render the accumulated text as Rich Markdown."""
+        """Swap the Text component for a Markdown component."""
         text = self.get_text()
         if text.strip():
-            self.update(RichMarkdown(text, code_theme="monokai"))
+            md = NuMarkdown(text)
+            self.set_component(md)
 
 
 class InteractiveApp(App[None]):
-    """Textual app for the interactive REPL."""
+    """Textual app for the interactive REPL with nu_tui component rendering."""
 
     TITLE = "nu"
     CSS = """
@@ -99,6 +98,10 @@ class InteractiveApp(App[None]):
         dock: bottom;
         height: 3;
         border-top: tall $accent;
+    }
+    ComponentWidget {
+        padding: 0 1;
+        margin: 0 0 1 0;
     }
     .user-message {
         background: $primary-background-darken-2;
@@ -130,8 +133,8 @@ class InteractiveApp(App[None]):
         self._session = session
         self._quiet = quiet
         self._working = False
-        self._streaming_widget: _StreamingWidget | None = None
-        self._thinking_widget: Static | None = None
+        self._streaming_widget: _StreamingComponentWidget | None = None
+        self._thinking_widget: ComponentWidget | None = None
 
     def compose(self) -> ComposeResult:
         model = self._session.model
@@ -215,7 +218,6 @@ Available commands:
         def on_dismiss(model_id: str | None) -> None:
             if model_id is None:
                 return
-            # Find and set the model
             model = self._session.model_registry.find_by_id(model_id)
             if model is not None:
                 self._session.set_model(model)
@@ -249,7 +251,7 @@ Available commands:
         def on_dismiss(theme_name: str | None) -> None:
             if theme_name is None:
                 return
-            self.theme = theme_name  # Textual's built-in theme switching
+            self.theme = theme_name
             self._add_info(f"Theme: {theme_name}")
 
         self.push_screen(ThemeSwitcherScreen(), on_dismiss)
@@ -272,11 +274,11 @@ Available commands:
         if self._working:
             return
 
-        self._add_message(f"> {text}", "user-message")
+        self._add_user_message(f"> {text}")
         self._run_prompt(text)
 
     # ------------------------------------------------------------------
-    # Prompt execution with streaming
+    # Prompt execution with streaming via nu_tui components
     # ------------------------------------------------------------------
 
     @work(thread=False)
@@ -285,19 +287,17 @@ Available commands:
         inp = self.query_one("#prompt-input", Input)
         inp.disabled = True
 
-        # Show thinking indicator
+        # Show thinking indicator via nu_tui Loader
         self._show_thinking()
 
-        # Create streaming widget for the assistant response
-        self._streaming_widget = _StreamingWidget()
+        # Create streaming widget backed by nu_tui Text → Markdown
+        self._streaming_widget = _StreamingComponentWidget()
         self._streaming_widget.add_class("assistant-message")
         area = self.query_one("#message-area", VerticalScroll)
         area.mount(self._streaming_widget)
 
         def listener(event: Any) -> None:
             event_type = event["type"]
-
-            # Stream text deltas live
             if event_type == "message_update":
                 inner = event.get("assistant_message_event")
                 if inner is not None:
@@ -306,40 +306,35 @@ Available commands:
                         delta = getattr(inner, "delta", "")
                         if delta:
                             self.call_from_thread(self._streaming_widget.append_delta, delta)
-
-            # Show tool calls
             if event_type == "tool_execution_end" and not self._quiet:
                 name = event.get("tool_name", "?")
                 is_error = event.get("is_error", False)
                 status = "error" if is_error else "ok"
-                self.call_from_thread(self._add_message, f"[tool {status}] {name}", "tool-message")
+                self.call_from_thread(self._add_tool_message, f"[tool {status}] {name}")
 
         unsub = self._session.subscribe(listener)
 
         try:
             await self._session.prompt(text)
 
-            # Finalize: re-render as markdown
             if self._streaming_widget is not None:  # pyright: ignore[reportUnnecessaryComparison]
                 self._streaming_widget.finalize_as_markdown()
                 self._streaming_widget.scroll_visible()
 
-            # Check for error stop reason
             messages = self._session.agent.state.messages
             if messages:
                 last = messages[-1]
                 if getattr(last, "stop_reason", None) == "error":
                     err = getattr(last, "error_message", None) or "unknown error"
-                    self._add_message(f"[error] {err}", "error-message")
+                    self._add_error(f"[error] {err}")
 
-            # Auto-compaction check
             if self._session.should_compact():
                 self._run_compact()
 
         except KeyboardInterrupt:
-            self._add_message("[interrupted]", "error-message")
+            self._add_error("[interrupted]")
         except Exception as exc:
-            self._add_message(f"[error] {exc}", "error-message")
+            self._add_error(f"[error] {exc}")
         finally:
             unsub()
             self._streaming_widget = None
@@ -359,40 +354,65 @@ Available commands:
             if result is not None:
                 self._add_info(f"[compacted] {result.tokens_before} tokens → summarized")
         except Exception as exc:
-            self._add_message(f"[compaction error] {exc}", "error-message")
+            self._add_error(f"[compaction error] {exc}")
 
     # ------------------------------------------------------------------
-    # Thinking indicator
+    # Thinking indicator — nu_tui Loader component
     # ------------------------------------------------------------------
 
     def _show_thinking(self) -> None:
         if self._thinking_widget is not None:
             return
-        self._thinking_widget = Static("⠋ Thinking...")
-        self._thinking_widget.add_class("thinking-indicator")
+        loader = NuLoader(message="Thinking...")
+        self._thinking_widget = ComponentWidget(loader, classes="thinking-indicator")
         area = self.query_one("#message-area", VerticalScroll)
         area.mount(self._thinking_widget)
         self._thinking_widget.scroll_visible()
 
     def _hide_thinking(self) -> None:
         if self._thinking_widget is not None:
+            # Stop the loader's animation task
+            component = self._thinking_widget.component
+            if isinstance(component, NuLoader):
+                component.stop()
             self._thinking_widget.remove()
             self._thinking_widget = None
 
     # ------------------------------------------------------------------
-    # Message rendering helpers
+    # Message rendering via nu_tui components
     # ------------------------------------------------------------------
 
-    def _add_message(self, text: str, css_class: str) -> None:
+    def _add_user_message(self, text: str) -> None:
+        """Add a user message rendered via nu_tui Text."""
+        component = NuText(text)
+        widget = ComponentWidget(component, classes="user-message")
         area = self.query_one("#message-area", VerticalScroll)
-        content: Any = RichText.from_ansi(text) if "\033[" in text else text
-        widget = _MessageWidget(content)
-        widget.add_class(css_class)
+        area.mount(widget)
+        widget.scroll_visible()
+
+    def _add_tool_message(self, text: str) -> None:
+        """Add a tool call message rendered via nu_tui Text."""
+        component = NuText(text)
+        widget = ComponentWidget(component, classes="tool-message")
+        area = self.query_one("#message-area", VerticalScroll)
         area.mount(widget)
         widget.scroll_visible()
 
     def _add_info(self, text: str) -> None:
-        self._add_message(text, "info-message")
+        """Add an informational message rendered via nu_tui Text."""
+        component = NuText(text)
+        widget = ComponentWidget(component, classes="info-message")
+        area = self.query_one("#message-area", VerticalScroll)
+        area.mount(widget)
+        widget.scroll_visible()
+
+    def _add_error(self, text: str) -> None:
+        """Add an error message rendered via nu_tui Text."""
+        component = NuText(text)
+        widget = ComponentWidget(component, classes="error-message")
+        area = self.query_one("#message-area", VerticalScroll)
+        area.mount(widget)
+        widget.scroll_visible()
 
 
 async def run_interactive_mode(session: AgentSession, *, quiet: bool = False) -> int:

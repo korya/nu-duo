@@ -24,6 +24,7 @@ Pure-logic utilities (already ported in earlier slices):
 """
 
 from nu_tui.component import Component, Container
+from nu_tui.component_widget import ComponentWidget
 from nu_tui.components import Box, SelectItem, SelectList, SelectListTheme, Spacer, Text, TruncatedText
 from nu_tui.terminal import Terminal, TerminalSize
 from nu_tui.tui import TUI, InputListener, InputListenerResult
@@ -33,6 +34,7 @@ __all__ = [
     "TUI",
     "Box",
     "Component",
+    "ComponentWidget",
     "Container",
     "InputListener",
     "InputListenerResult",
