@@ -140,6 +140,7 @@ class ToolExecutionStartEvent:
     type: Literal["tool_execution_start"] = "tool_execution_start"
     tool_name: str = ""
     arguments: dict[str, Any] = field(default_factory=dict)
+    tool_call_id: str = ""
 
 
 @dataclass(slots=True)
@@ -147,6 +148,7 @@ class ToolExecutionUpdateEvent:
     type: Literal["tool_execution_update"] = "tool_execution_update"
     tool_name: str = ""
     update: Any = None
+    tool_call_id: str = ""
 
 
 @dataclass(slots=True)
@@ -155,6 +157,7 @@ class ToolExecutionEndEvent:
     tool_name: str = ""
     is_error: bool = False
     result: Any = None
+    tool_call_id: str = ""
 
 
 # ---------------------------------------------------------------------------

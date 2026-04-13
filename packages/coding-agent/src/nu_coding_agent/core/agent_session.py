@@ -128,6 +128,15 @@ class AgentSession:
         # Tracks whether ``session_start`` has fired so we only emit it
         # once per AgentSession lifetime, on the first prompt.
         self._extensions_started = False
+        self._is_compacting = False
+
+        # Session-level state (matches upstream properties)
+        self._session_name: str | None = None
+        self._thinking_level: str = "off"
+        self._steering_mode: str = "all"
+        self._follow_up_mode: str = "all"
+        self._auto_compaction_enabled: bool = True
+        self._auto_retry_enabled: bool = True
 
         # The persisting listener runs first so user-supplied subscribers
         # always observe events that are already on disk.
@@ -235,6 +244,238 @@ class AgentSession:
         if candidate.api == "unknown":
             return None
         return candidate
+
+    # ------------------------------------------------------------------
+    # Session info / state
+    # ------------------------------------------------------------------
+
+    @property
+    def session_id(self) -> str:
+        """The session's unique identifier."""
+        return self._session_manager.get_session_id()
+
+    @property
+    def session_name(self) -> str | None:
+        """User-assigned display name for this session."""
+        return self._session_name
+
+    def set_session_name(self, name: str) -> None:
+        """Set the session's display name."""
+        self._session_name = name
+
+    @property
+    def session_file(self) -> str | None:
+        """Path to the session JSONL file, if persisted."""
+        return self._session_manager.get_session_file()
+
+    @property
+    def is_streaming(self) -> bool:
+        """Whether the agent is currently generating a response."""
+        # The agent has a signal Event that exists while running
+        return self._agent.signal is not None
+
+    @property
+    def is_compacting(self) -> bool:
+        """Whether compaction is in progress."""
+        return self._is_compacting
+
+    @property
+    def pending_message_count(self) -> int:
+        """Number of queued steering/follow-up messages."""
+        return 0  # Queuing is managed by the agent itself
+
+    @property
+    def messages(self) -> list[Any]:
+        """Shortcut for ``agent.state.messages``."""
+        return list(self._agent.state.messages)
+
+    # ------------------------------------------------------------------
+    # Thinking level
+    # ------------------------------------------------------------------
+
+    @property
+    def thinking_level(self) -> str:
+        """Current thinking level (off, low, medium, high)."""
+        return self._thinking_level
+
+    def set_thinking_level(self, level: str) -> None:
+        """Set the thinking level."""
+        self._thinking_level = level
+
+    def cycle_thinking_level(self) -> str | None:
+        """Cycle through available thinking levels. Returns new level or None."""
+        levels = ["off", "low", "medium", "high"]
+        try:
+            idx = levels.index(self._thinking_level)
+        except ValueError:
+            idx = 0
+        next_idx = (idx + 1) % len(levels)
+        self._thinking_level = levels[next_idx]
+        return self._thinking_level
+
+    # ------------------------------------------------------------------
+    # Queue modes
+    # ------------------------------------------------------------------
+
+    @property
+    def steering_mode(self) -> str:
+        """How steering messages are processed: 'all' or 'one-at-a-time'."""
+        return self._steering_mode
+
+    def set_steering_mode(self, mode: str) -> None:
+        self._steering_mode = mode
+
+    @property
+    def follow_up_mode(self) -> str:
+        """How follow-up messages are processed: 'all' or 'one-at-a-time'."""
+        return self._follow_up_mode
+
+    def set_follow_up_mode(self, mode: str) -> None:
+        self._follow_up_mode = mode
+
+    # ------------------------------------------------------------------
+    # Auto-compaction / auto-retry
+    # ------------------------------------------------------------------
+
+    @property
+    def auto_compaction_enabled(self) -> bool:
+        return self._auto_compaction_enabled
+
+    def set_auto_compaction_enabled(self, enabled: bool) -> None:
+        self._auto_compaction_enabled = enabled
+
+    @property
+    def auto_retry_enabled(self) -> bool:
+        return self._auto_retry_enabled
+
+    def set_auto_retry_enabled(self, enabled: bool) -> None:
+        self._auto_retry_enabled = enabled
+
+    def abort_retry(self) -> None:
+        """Abort any in-progress retry."""
+        # Retry state management is a future enhancement
+
+    # ------------------------------------------------------------------
+    # Steer / follow-up / abort
+    # ------------------------------------------------------------------
+
+    def steer(self, text: str, images: list[ImageContent] | None = None) -> None:
+        """Send a steering message to interrupt the current agent turn."""
+        import time as _time  # noqa: PLC0415
+
+        from nu_ai import TextContent, UserMessage  # noqa: PLC0415
+
+        content: list[Any] = [TextContent(type="text", text=text)]
+        msg = UserMessage(role="user", content=content, timestamp=int(_time.time() * 1000))
+        self._agent.steer(msg)
+
+    def follow_up(self, text: str, images: list[ImageContent] | None = None) -> None:
+        """Queue a follow-up message for after the agent finishes."""
+        import time as _time  # noqa: PLC0415
+
+        from nu_ai import TextContent, UserMessage  # noqa: PLC0415
+
+        content: list[Any] = [TextContent(type="text", text=text)]
+        msg = UserMessage(role="user", content=content, timestamp=int(_time.time() * 1000))
+        self._agent.follow_up(msg)
+
+    def abort(self) -> None:
+        """Stop the current agent turn."""
+        self._agent.abort()
+
+    # ------------------------------------------------------------------
+    # Bash execution
+    # ------------------------------------------------------------------
+
+    async def execute_bash(self, command: str) -> dict[str, Any]:
+        """Execute a bash command and return the result.
+
+        Returns a dict with output, exit_code, cancelled, truncated fields.
+        """
+        from nu_coding_agent.core.bash_executor import execute_bash as _exec_bash  # noqa: PLC0415
+
+        result = await _exec_bash(command)
+        return {
+            "output": result.output,
+            "exitCode": result.exit_code,
+            "cancelled": result.cancelled,
+            "truncated": result.truncated,
+        }
+
+    def abort_bash(self) -> None:
+        """Abort the running bash command, if any."""
+        # Bash abort is a future enhancement
+
+    # ------------------------------------------------------------------
+    # Session utilities
+    # ------------------------------------------------------------------
+
+    def get_last_assistant_text(self) -> str | None:
+        """Get the text content of the last assistant message."""
+        from nu_ai import AssistantMessage, TextContent  # noqa: PLC0415
+
+        for msg in reversed(self._agent.state.messages):
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextContent):
+                        return block.text
+        return None
+
+    def get_user_messages_for_forking(self) -> list[dict[str, str]]:
+        """List user messages suitable for the fork point selector.
+
+        Returns a list of dicts with ``entryId`` and ``text`` keys.
+        """
+        result: list[dict[str, str]] = []
+        for entry in self._session_manager.get_entries():
+            if entry.get("type") != "message":
+                continue
+            msg = entry.get("message")
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                content = msg.get("content")
+                text = ""
+                if isinstance(content, str):
+                    text = content
+                elif isinstance(content, list):
+                    for block in content:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            text = block.get("text", "")
+                            break
+                entry_id = entry.get("id", "")
+                if entry_id and text:
+                    result.append({"entryId": entry_id, "text": text})
+        return result
+
+    async def reload(self) -> None:
+        """Reload all resources and extensions at runtime."""
+        # Extension reload is a future enhancement
+
+    async def bind_extensions(self, **kwargs: Any) -> None:
+        """Bind extension UI context and command handlers.
+
+        This is a simplified version — full extension binding
+        with UI context, command actions, and shutdown handlers
+        will be expanded as the extension system matures.
+        """
+        # Accept but don't use UI context for now
+
+    # ------------------------------------------------------------------
+    # HTML export
+    # ------------------------------------------------------------------
+
+    async def export_to_html(
+        self,
+        output_path: str | None = None,
+        theme_name: str | None = None,
+    ) -> str:
+        """Export this session to a self-contained HTML file.
+
+        Returns the path of the written HTML file.
+        """
+        from nu_coding_agent.core.export_html import ExportOptions, export_session_to_html  # noqa: PLC0415
+
+        opts = ExportOptions(output_path=output_path, theme_name=theme_name)
+        return await export_session_to_html(self.session_manager, self.agent.state, opts)
 
     # ------------------------------------------------------------------
     # Event subscription
@@ -450,7 +691,7 @@ class AgentSession:
         * ``session_before_compact`` is emitted with the prepared
           :class:`CompactionPreparation` and the current branch.
           Handlers may return a :class:`SessionBeforeCompactResult`
-          (or a plain dict with ``cancel`` / ``compaction`` keys) to
+          (or a plain dict with ``cancel`` / ``compaction`` keys)  to
           either cancel the compaction entirely or supply a custom
           :class:`CompactionResult` that bypasses the LLM
           summarisation.
@@ -463,6 +704,17 @@ class AgentSession:
         if prep is None:
             return None
 
+        self._is_compacting = True
+        try:
+            return await self._run_compact(prep, custom_instructions)
+        finally:
+            self._is_compacting = False
+
+    async def _run_compact(
+        self,
+        prep: CompactionPreparation,
+        custom_instructions: str | None,
+    ) -> CompactionResult | None:
         # Hook 1: before_compact — handlers may cancel or replace.
         result, from_extension = await self._dispatch_before_compact(prep, custom_instructions)
         if result is None and from_extension is False:
@@ -699,17 +951,20 @@ def _translate_to_extension_event(event: AgentEvent) -> LifecycleEvent | None:
         return ToolExecutionStartEvent(
             tool_name=str(event.get("tool_name", "")),  # type: ignore[union-attr]
             arguments=event.get("args") or {},  # type: ignore[union-attr]
+            tool_call_id=str(event.get("tool_call_id", "")),  # type: ignore[union-attr]
         )
     if event_type == "tool_execution_update":
         return ToolExecutionUpdateEvent(
             tool_name=str(event.get("tool_name", "")),  # type: ignore[union-attr]
             update=event.get("partial_result"),  # type: ignore[union-attr]
+            tool_call_id=str(event.get("tool_call_id", "")),  # type: ignore[union-attr]
         )
     if event_type == "tool_execution_end":
         return ToolExecutionEndEvent(
             tool_name=str(event.get("tool_name", "")),  # type: ignore[union-attr]
             is_error=bool(event.get("is_error", False)),  # type: ignore[union-attr]
             result=event.get("result"),  # type: ignore[union-attr]
+            tool_call_id=str(event.get("tool_call_id", "")),  # type: ignore[union-attr]
         )
     return None
 

@@ -95,6 +95,16 @@ from nu_ai.utils.event_stream import (
     EventStream,
     create_assistant_message_event_stream,
 )
+from nu_ai.utils.oauth import (
+    OAuthCredentials,
+    OAuthProviderInterface,
+    get_oauth_api_key,
+    get_oauth_provider,
+    get_oauth_providers,
+    register_oauth_provider,
+    reset_oauth_providers,
+    unregister_oauth_provider,
+)
 
 __all__ = [
     "MODELS",
@@ -124,6 +134,8 @@ __all__ = [
     "Message",
     "Model",
     "ModelCost",
+    "OAuthCredentials",
+    "OAuthProviderInterface",
     "OpenAICompletionsCompat",
     "OpenAICompletionsOptions",
     "OpenAICompletionsToolChoice",
@@ -167,11 +179,17 @@ __all__ = [
     "get_env_api_key",
     "get_model",
     "get_models",
+    "get_oauth_api_key",
+    "get_oauth_provider",
+    "get_oauth_providers",
     "get_providers",
     "models_are_equal",
     "register_api_provider",
+    "register_oauth_provider",
+    "reset_oauth_providers",
     "stream",
     "stream_simple",
     "supports_xhigh",
     "unregister_api_providers",
+    "unregister_oauth_provider",
 ]

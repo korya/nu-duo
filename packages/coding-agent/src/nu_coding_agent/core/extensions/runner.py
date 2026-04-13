@@ -124,6 +124,19 @@ class ExtensionRunner:
     def get_extension_paths(self) -> list[str]:
         return [ext.path for ext in self._extensions]
 
+    def get_message_renderer(self, custom_type: str) -> Any | None:
+        """Return the first registered ``MessageRenderer`` for *custom_type*, or ``None``.
+
+        Port of the upstream ``getMessageRenderer`` helper used by the
+        interactive mode to dispatch custom extension messages to their
+        registered renderers.
+        """
+        for extension in self._extensions:
+            renderer = extension.message_renderers.get(custom_type)
+            if renderer is not None:
+                return renderer
+        return None
+
     def get_all_registered_tools(self) -> list[Any]:
         """Return every tool registered by every loaded extension.
 

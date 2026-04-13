@@ -27,3 +27,6 @@ build/
 
 # Workspace
 !packages/*/
+
+# Reference repos and scratch space (not committed)
+tmp/
