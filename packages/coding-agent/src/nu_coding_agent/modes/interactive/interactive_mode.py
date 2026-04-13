@@ -1,4 +1,4 @@
-"""Interactive REPL for ``nu`` — Phase 5.10 (tool-aware widget rendering).
+"""Interactive REPL for ``nu`` — Phase 5.11 (full slash-command surface).
 
 The interactive mode renders through the nu_tui component library:
 
@@ -11,6 +11,12 @@ The interactive mode renders through the nu_tui component library:
   ``tool_execution_start``, finalized with result on
   ``tool_execution_end``.
 * **Compaction events** use ``CompactionSummaryWidget``.
+* **Slash commands** — full parity with the upstream TS surface
+  (``/export``, ``/copy``, ``/name``, ``/changelog``, ``/hotkeys``,
+  ``/fork``, ``/resume``, ``/login``, ``/logout``, ``/new``,
+  ``/reload``, ``/debug``, ``/quit``).
+* **Bash prefix** — ``!command`` and ``!!command`` run ad-hoc shell
+  commands outside the agent loop.
 
 Widgets are tracked in ``_tool_widgets`` keyed by ``tool_call_id``
 so concurrent tool calls each update their own widget.
@@ -22,6 +28,7 @@ ModalScreen) handles scrolling, focus, and modals.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from nu_tui.component_widget import ComponentWidget
@@ -129,7 +136,7 @@ class InteractiveApp(App[None]):
     """
 
     BINDINGS = [  # noqa: RUF012 — Textual convention
-        ("ctrl+c", "quit", "Exit"),
+        ("ctrl+c", "interrupt_or_quit", "Cancel / Exit"),
     ]
 
     def __init__(self, session: AgentSession, quiet: bool = False) -> None:
@@ -141,6 +148,31 @@ class InteractiveApp(App[None]):
         self._thinking_widget: ComponentWidget | None = None
         # Widgets keyed by tool_call_id for concurrent tool tracking
         self._tool_widgets: dict[str, ToolExecutionWidget | BashExecutionWidget] = {}
+        # Running !command subprocess (None when idle)
+        self._bash_proc: Any | None = None
+
+    def action_interrupt_or_quit(self) -> None:
+        """Ctrl+C: kill a running !command subprocess, or exit when idle."""
+        import contextlib  # noqa: PLC0415
+        import os as _os  # noqa: PLC0415
+        import signal as _signal  # noqa: PLC0415
+
+        if self._bash_proc is not None:
+            proc = self._bash_proc
+            self._bash_proc = None  # cleared first so worker detects cancellation
+            with contextlib.suppress(Exception):
+                # Kill the entire process group — proc.pid is the PGID because
+                # start_new_session=True makes the shell its own group leader.
+                # This also kills grandchildren (e.g. `yes` spawned by `sh -c`).
+                _os.killpg(proc.pid, _signal.SIGTERM)
+            with contextlib.suppress(Exception):
+                # Close the read end of the pipe so that any readline() currently
+                # blocking in the thread pool gets an immediate IOError/EOF rather
+                # than waiting for all buffered data to be drained (O(buf) → O(1)).
+                if proc.stdout:
+                    proc.stdout.close()
+            return
+        self.exit()
 
     def compose(self) -> ComposeResult:
         model = self._session.model
@@ -179,22 +211,36 @@ class InteractiveApp(App[None]):
 
     _HELP_TEXT = """\
 Available commands:
-  /help      — show this help
-  /exit      — exit the REPL
-  /model     — show the current model
-  /models    — pick a model from available models
-  /compact   — trigger context compaction
-  /clear     — clear the message area
-  /session   — show session file path
-  /sessions  — list and switch sessions
-  /settings  — show current settings
-  /theme     — switch dark/light theme
+  /help            — show this help
+  /exit, /quit     — exit the REPL
+  /model           — show the current model
+  /models          — pick a model from available models
+  /compact [instr] — trigger context compaction (optional instructions)
+  /clear           — clear the message area
+  /session         — show session stats
+  /sessions        — list and switch sessions
+  /settings        — show current settings
+  /theme           — switch dark/light theme
+  /export [path]   — export session to HTML (or .jsonl if path ends with .jsonl)
+  /copy            — copy last assistant message to clipboard
+  /name [name]     — get or set the session name
+  /changelog       — show the changelog
+  /hotkeys         — show keyboard shortcuts
+  /fork            — fork from a prior user message
+  /resume          — resume a previous session
+  /login           — log in to an OAuth provider
+  /logout          — log out from an OAuth provider
+  /new             — start a new session
+  /reload          — reload extensions, keybindings, and settings
+  /debug           — show debug information
+  !command         — run a shell command outside the agent loop
+  !!command        — run a shell command (excluded from context)
 """
 
     def _handle_slash_command(self, text: str) -> bool:
         """Process a slash command. Returns True if handled."""
         cmd = text.split(maxsplit=1)[0].lower() if text else ""
-        if cmd == "/exit":
+        if cmd in ("/exit", "/quit"):
             self.exit()
             return True
         if cmd == "/help":
@@ -204,19 +250,19 @@ Available commands:
             model = self._session.model
             self._add_info(f"Model: {model.id if model else 'none'}")
             return True
-        if cmd == "/models":
+        if cmd in ("/models", "/scoped-models", "/model-select"):
             self._show_model_picker()
             return True
         if cmd == "/compact":
-            self._run_compact()
+            instructions = text[len("/compact") :].strip() or None
+            self._run_compact(instructions)
             return True
         if cmd == "/clear":
             area = self.query_one("#message-area", VerticalScroll)
             area.remove_children()
             return True
         if cmd == "/session":
-            sf = self._session.session_manager.get_session_file()
-            self._add_info(f"Session: {sf or '(in-memory)'}")
+            self._handle_session_command()
             return True
         if cmd == "/sessions":
             self._show_session_list()
@@ -226,6 +272,42 @@ Available commands:
             return True
         if cmd == "/theme":
             self._show_theme_picker()
+            return True
+        if cmd == "/export":
+            self._run_export(text)
+            return True
+        if cmd == "/copy":
+            self._run_copy()
+            return True
+        if cmd == "/name":
+            self._handle_name_command(text)
+            return True
+        if cmd == "/changelog":
+            self._handle_changelog()
+            return True
+        if cmd == "/hotkeys":
+            self._handle_hotkeys()
+            return True
+        if cmd == "/fork":
+            self._show_fork_selector()
+            return True
+        if cmd == "/resume":
+            self._show_resume_selector()
+            return True
+        if cmd == "/login":
+            self._show_oauth_selector("login")
+            return True
+        if cmd == "/logout":
+            self._show_oauth_selector("logout")
+            return True
+        if cmd == "/new":
+            self._run_new_session()
+            return True
+        if cmd == "/reload":
+            self._run_reload()
+            return True
+        if cmd == "/debug":
+            self._handle_debug()
             return True
         return False
 
@@ -277,6 +359,429 @@ Available commands:
 
         self.push_screen(ThemeSwitcherScreen(), on_dismiss)
 
+    def _show_fork_selector(self) -> None:
+        from nu_coding_agent.modes.interactive.selectors import ForkSelectorScreen  # noqa: PLC0415
+
+        messages = self._session.get_user_messages_for_forking()
+        if not messages:
+            self._add_info("No user messages to fork from.")
+            return
+
+        def on_dismiss(result: tuple[str, str] | None) -> None:
+            if result is None:
+                return
+            entry_id, selected_text = result
+            self._run_fork(entry_id, selected_text)
+
+        self.push_screen(ForkSelectorScreen(messages), on_dismiss)
+
+    def _show_resume_selector(self) -> None:
+        from nu_coding_agent.modes.interactive.selectors import ResumeSelectorScreen  # noqa: PLC0415
+
+        sm = self._session.session_manager
+        cwd = self._session.cwd
+
+        def on_dismiss(session_path: str | None) -> None:
+            if session_path is None:
+                return
+            self._run_resume(session_path)
+
+        self.push_screen(ResumeSelectorScreen(cwd, sm.get_session_dir()), on_dismiss)
+
+    def _show_oauth_selector(self, mode: str) -> None:
+        from nu_coding_agent.modes.interactive.selectors import OAuthSelectorScreen  # noqa: PLC0415
+
+        auth = self._session.auth_storage
+        if mode == "logout":
+            providers = auth.get_oauth_providers()
+            logged_in = [p for p in providers if auth.get(p) is not None]
+            if not logged_in:
+                self._add_info("No OAuth providers logged in. Use /login first.")
+                return
+
+        def on_dismiss(provider_id: str | None) -> None:
+            if provider_id is None:
+                return
+            if mode == "login":
+                self._run_oauth_login(provider_id)
+            else:
+                self._run_oauth_logout(provider_id)
+
+        self.push_screen(OAuthSelectorScreen(mode, auth), on_dismiss)
+
+    # ------------------------------------------------------------------
+    # Slash command handlers
+    # ------------------------------------------------------------------
+
+    @work(thread=False)
+    async def _run_export(self, text: str) -> None:
+        """``/export [path]`` — export session to HTML or JSONL."""
+        parts = text.split()
+        output_path = parts[1] if len(parts) > 1 else None
+        try:
+            if output_path and output_path.endswith(".jsonl"):
+                sm = self._session.session_manager
+                sf = sm.get_session_file()
+                if sf is None:
+                    self._add_info("Session is in-memory; nothing to export as JSONL.")
+                    return
+                import shutil  # noqa: PLC0415
+
+                shutil.copy2(sf, output_path)
+                self._add_info(f"Session exported to: {output_path}")
+            else:
+                file_path = await self._session.export_to_html(output_path)
+                self._add_info(f"Session exported to: {file_path}")
+        except Exception as exc:
+            self._mount_error(f"Export failed: {exc}")
+
+    @work(thread=False)
+    async def _run_copy(self) -> None:
+        """``/copy`` — copy the last assistant message to the clipboard."""
+        text = self._session.get_last_assistant_text()
+        if not text:
+            self._mount_error("No agent messages to copy yet.")
+            return
+        try:
+            import asyncio as _asyncio  # noqa: PLC0415
+
+            import pyperclip  # noqa: PLC0415
+
+            await _asyncio.to_thread(pyperclip.copy, text)
+            self._add_info("Copied last agent message to clipboard.")
+        except Exception as exc:
+            self._mount_error(f"Copy failed: {exc}")
+
+    def _handle_name_command(self, text: str) -> None:
+        """``/name [name]`` — get or set the session name."""
+        name = text[len("/name") :].strip()
+        sm = self._session.session_manager
+        if not name:
+            current = sm.get_session_name()
+            if current:
+                self._add_info(f"Session name: {current}")
+            else:
+                self._add_info("Usage: /name <name>")
+            return
+        sm.append_session_info(name)
+        self.sub_title = f"cwd: {self._session.cwd} | {name}"
+        self._add_info(f"Session name set: {name}")
+
+    def _handle_session_command(self) -> None:
+        """``/session`` — show session statistics."""
+        stats = self._session.get_stats()
+        lines = [
+            "**Session Info**",
+            "",
+            f"File: {stats.session_file or '(in-memory)'}",
+            f"ID: {stats.session_id}",
+            "",
+            "**Messages**",
+            f"User: {stats.user_messages}",
+            f"Assistant: {stats.assistant_messages}",
+            f"Tool Calls: {stats.tool_calls}",
+            f"Tool Results: {stats.tool_results}",
+            f"Total: {stats.total_messages}",
+            "",
+            "**Tokens**",
+            f"Input: {stats.tokens_input:,}",
+            f"Output: {stats.tokens_output:,}",
+        ]
+        if stats.tokens_cache_read > 0:
+            lines.append(f"Cache Read: {stats.tokens_cache_read:,}")
+        if stats.tokens_cache_write > 0:
+            lines.append(f"Cache Write: {stats.tokens_cache_write:,}")
+        total_tokens = stats.tokens_input + stats.tokens_output + stats.tokens_cache_read + stats.tokens_cache_write
+        lines.append(f"Total: {total_tokens:,}")
+        if stats.cost > 0:
+            lines += ["", "**Cost**", f"Total: ${stats.cost:.4f}"]
+        self._add_info("\n".join(lines))
+
+    def _handle_changelog(self) -> None:
+        """``/changelog`` — show changelog entries."""
+        from nu_coding_agent.utils.changelog import parse_changelog  # noqa: PLC0415
+
+        # Look for CHANGELOG.md in the package resources or current directory
+        candidates = [
+            Path(__file__).parents[4] / "CHANGELOG.md",
+            Path(self._session.cwd) / "CHANGELOG.md",
+        ]
+        changelog_path = next((str(p) for p in candidates if p.exists()), "")
+        entries = parse_changelog(changelog_path) if changelog_path else []
+        if entries:
+            md = "\n\n".join(e.content for e in reversed(entries))
+            self._add_info(f"**What's New**\n\n{md}")
+        else:
+            self._add_info("No changelog entries found.")
+
+    def _handle_hotkeys(self) -> None:
+        """``/hotkeys`` — show keyboard shortcuts."""
+        hotkeys = """\
+**Navigation**
+| Key | Action |
+|-----|--------|
+| `Up` / `Down` | Browse history (when input is empty) |
+| `Ctrl+A` | Start of line |
+| `Ctrl+E` | End of line |
+
+**Editing**
+| Key | Action |
+|-----|--------|
+| `Enter` | Send message |
+| `Shift+Enter` | New line |
+| `Ctrl+W` | Delete word backwards |
+| `Ctrl+K` | Delete to end of line |
+| `Ctrl+U` | Delete to start of line |
+| `Ctrl+Y` | Yank (paste deleted text) |
+
+**Other**
+| Key | Action |
+|-----|--------|
+| `Tab` | Autocomplete / expand |
+| `Ctrl+C` | Cancel / abort |
+| `Ctrl+D` | Exit (when input is empty) |
+| `/` | Slash commands |
+| `!` | Run shell command |
+| `!!` | Run shell command (excluded from context) |
+
+**Commands**
+Type `/help` to see all slash commands.
+"""
+        self._add_info(hotkeys)
+
+    def _handle_debug(self) -> None:
+        """``/debug`` — show debug information."""
+        stats = self._session.get_stats()
+        model = self._session.model
+        lines = [
+            "**Debug Info**",
+            "",
+            f"Session file: {stats.session_file or '(in-memory)'}",
+            f"Session ID: {stats.session_id}",
+            f"CWD: {self._session.cwd}",
+            f"Model: {model.provider}/{model.id}" if model else "Model: none",
+            f"Messages: {stats.total_messages}",
+            f"Tokens in: {stats.tokens_input:,}  out: {stats.tokens_output:,}",
+            f"Working: {self._working}",
+        ]
+        runner = self._session.extension_runner
+        if runner is not None:
+            ext_names = [getattr(e, "name", str(e)) for e in runner.extensions]
+            lines.append(f"Extensions: {', '.join(ext_names) or 'none'}")
+        self._add_info("\n".join(lines))
+
+    @work(thread=False)
+    async def _run_fork(self, entry_id: str, selected_text: str) -> None:
+        """Fork the session at the given entry."""
+        sm = self._session.session_manager
+        sf = sm.get_session_file()
+        if sf is None:
+            self._mount_error("Cannot fork: session is not persisted to disk.")
+            return
+        try:
+            from nu_coding_agent.core.session_manager import SessionManager  # noqa: PLC0415
+
+            # Find entries up to (and including) the selected entry
+            entries = sm.get_entries()
+            kept: list[dict[str, Any]] = []
+            for e in entries:
+                kept.append(e)
+                if e.get("id") == entry_id:
+                    break
+
+            # Create new session manager and replay kept entries
+            new_session = SessionManager(cwd=sm.get_cwd(), session_dir=sm.get_session_dir(), session_file=None, persist=True)
+            for e in kept:
+                if e.get("type") == "session":
+                    continue
+                new_session._append_entry(e)  # type: ignore[attr-defined]
+
+            # Switch the current session's session manager to the new one
+            self._session._session_manager = new_session  # type: ignore[attr-defined]
+
+            # Reload the UI from the new session
+            area = self.query_one("#message-area", VerticalScroll)
+            area.remove_children()
+            self._restore_history()
+            self._add_info(f"Forked to new session. You can continue from: {selected_text[:60]}")
+        except Exception as exc:
+            self._mount_error(f"Fork failed: {exc}")
+
+    @work(thread=False)
+    async def _run_resume(self, session_path: str) -> None:
+        """Switch to a previous session."""
+        try:
+            sm = self._session.session_manager
+            sm.set_session_file(session_path)
+            area = self.query_one("#message-area", VerticalScroll)
+            area.remove_children()
+            self._restore_history()
+            self._add_info(f"Resumed session: {session_path}")
+        except Exception as exc:
+            self._mount_error(f"Resume failed: {exc}")
+
+    @work(thread=False)
+    async def _run_new_session(self) -> None:
+        """Start a fresh session (``/new``)."""
+        try:
+            sm = self._session.session_manager
+            sm.new_session()
+            area = self.query_one("#message-area", VerticalScroll)
+            area.remove_children()
+            self._add_info("New session started.")
+        except Exception as exc:
+            self._mount_error(f"New session failed: {exc}")
+
+    @work(thread=False)
+    async def _run_reload(self) -> None:
+        """Reload extensions, keybindings, and settings (``/reload``)."""
+        try:
+            await self._session.reload()
+            self._add_info("Reloaded extensions, keybindings, and settings.")
+        except Exception as exc:
+            self._mount_error(f"Reload failed: {exc}")
+
+    @work(thread=False)
+    async def _run_oauth_login(self, provider_id: str) -> None:
+        """Push a LoginDialog for the given OAuth provider.
+
+        The dialog drives the OAuth flow; on success the model registry
+        is refreshed so newly-unlocked models become available.
+        """
+        from nu_coding_agent.modes.interactive.components.login_dialog import LoginDialog  # noqa: PLC0415
+
+        auth = self._session.auth_storage
+
+        def on_complete(ok: bool, _msg: str) -> None:
+            if ok:
+                auth.reload()
+                self._session.model_registry.refresh()
+                self._add_info(f"Logged in to {provider_id}.")
+            else:
+                self._add_info(f"Login to {provider_id} cancelled.")
+
+        dialog = LoginDialog(provider_id, on_complete=on_complete)
+        await self.push_screen_wait(dialog)
+
+    def _run_oauth_logout(self, provider_id: str) -> None:
+        """Logout from the given OAuth provider."""
+        try:
+            self._session.auth_storage.logout(provider_id)
+            self._session.model_registry.refresh()
+            self._add_info(f"Logged out from {provider_id}.")
+        except Exception as exc:
+            self._mount_error(f"Logout failed: {exc}")
+
+    # Max bytes accumulated in memory for a !command output stream.
+    _BASH_CMD_MAX_BYTES = 512 * 1024  # 512 KB
+
+    @work(thread=False)
+    async def _run_bash_command(self, command: str, *, excluded: bool = False) -> None:
+        """Run a shell command outside the agent loop (``!command``).
+
+        **Why the subprocess is isolated from terminal SIGINT:**
+        ``start_new_session=True`` puts the subprocess in its own session so
+        Ctrl+C in the terminal sends SIGINT only to ``nu``, not to the child.
+
+        **Why SIGINT is intercepted while the command runs:**
+        A temporary SIGINT handler replaces Python's default (which would
+        raise ``KeyboardInterrupt`` and kill ``nu``).  The handler terminates
+        the subprocess and restores the original handler so the app lives on.
+
+        **Why stdout is read via ``run_in_executor``:**
+        ``readline()`` blocks in a thread-pool thread, keeping the asyncio
+        event loop free to process key events even for programs like ``yes``
+        that produce output faster than the loop could drain it.
+
+        Output is capped at :attr:`_BASH_CMD_MAX_BYTES` to prevent OOM.
+        """
+        import asyncio as _asyncio  # noqa: PLC0415
+        import contextlib  # noqa: PLC0415
+        import signal  # noqa: PLC0415
+        import subprocess as _subprocess  # noqa: PLC0415
+
+        widget = BashExecutionWidget(command)
+        area = self.query_one("#message-area", VerticalScroll)
+        area.mount(widget)
+        widget.scroll_visible()
+
+        self._working = True
+        inp = self.query_one("#prompt-input", Input)
+        inp.disabled = True
+
+        cancelled = False
+        exit_code: int | None = None
+        old_sigint = signal.getsignal(signal.SIGINT)
+
+        def _sigint_for_bash(sig: int, frame: object) -> None:
+            """Kill only the child process group; keep nu alive."""
+            import os as _os  # noqa: PLC0415
+            if self._bash_proc is not None:
+                proc_ref = self._bash_proc
+                self._bash_proc = None
+                with contextlib.suppress(Exception):
+                    _os.killpg(proc_ref.pid, signal.SIGTERM)
+                with contextlib.suppress(Exception):
+                    if proc_ref.stdout:
+                        proc_ref.stdout.close()
+            signal.signal(signal.SIGINT, old_sigint)
+
+        try:
+            proc = _subprocess.Popen(  # noqa: ASYNC220
+                command,
+                shell=True,
+                stdout=_subprocess.PIPE,
+                stderr=_subprocess.STDOUT,
+                cwd=self._session.cwd,
+                start_new_session=True,  # isolate from terminal Ctrl+C SIGINT
+            )
+            self._bash_proc = proc
+            signal.signal(signal.SIGINT, _sigint_for_bash)
+
+            loop = _asyncio.get_running_loop()
+            output_chunks: list[str] = []
+            total_bytes = 0
+
+            assert proc.stdout is not None
+            while True:
+                line: bytes = await loop.run_in_executor(None, proc.stdout.readline)
+                # Break on EOF or if cancelled (action_interrupt_or_quit / SIGINT
+                # handler clears _bash_proc and closes stdout).  Checking here
+                # makes cancellation O(1) — we discard buffered data rather than
+                # draining the entire pipe (up to 1 MB at 50 µs/line = seconds).
+                if not line or self._bash_proc is None:
+                    break
+                output_chunks.append(line.decode("utf-8", errors="replace"))
+                total_bytes += len(line)
+                widget.set_output("".join(output_chunks))
+                if total_bytes >= self._BASH_CMD_MAX_BYTES:
+                    output_chunks.append("\n[output truncated]")
+                    widget.set_output("".join(output_chunks))
+                    with contextlib.suppress(Exception):
+                        import os as _os2  # noqa: PLC0415
+                        _os2.killpg(proc.pid, signal.SIGTERM)
+                    with contextlib.suppress(Exception):
+                        proc.stdout.close()
+                    break
+
+            await loop.run_in_executor(None, proc.wait)
+            exit_code = proc.returncode
+            cancelled = self._bash_proc is None and exit_code not in (0,)
+
+            if not excluded:
+                output_text = "".join(output_chunks)
+                self._add_info(f"$ {command}\n(exit {exit_code})\n{output_text[:500]}")
+        except Exception as exc:
+            self._mount_error(f"Bash command failed: {exc}")
+            exit_code = 1
+        finally:
+            signal.signal(signal.SIGINT, old_sigint)
+            self._bash_proc = None
+            widget.set_complete(exit_code, cancelled=cancelled)
+            self._working = False
+            inp.disabled = False
+            inp.focus()
+
     # ------------------------------------------------------------------
     # Submit
     # ------------------------------------------------------------------
@@ -288,6 +793,18 @@ Available commands:
             return
 
         event.input.value = ""
+
+        # Handle bash exec prefix (! or !!) before slash-command check
+        if text.startswith("!") and not text.startswith("/"):
+            is_excluded = text.startswith("!!")
+            command = text[2:].strip() if is_excluded else text[1:].strip()
+            if command:
+                if self._working:
+                    self._add_info("A command is already running. Wait for it to finish.")
+                    event.input.value = text
+                    return
+                self._run_bash_command(command, excluded=is_excluded)
+            return
 
         if text.startswith("/") and self._handle_slash_command(text):
             return
@@ -438,9 +955,9 @@ Available commands:
     # ------------------------------------------------------------------
 
     @work(thread=False)
-    async def _run_compact(self) -> None:
+    async def _run_compact(self, instructions: str | None = None) -> None:
         try:
-            result = await self._session.compact()
+            result = await self._session.compact(custom_instructions=instructions)
             if result is not None:
                 widget = CompactionSummaryWidget(result.summary, result.tokens_before)
                 area = self.query_one("#message-area", VerticalScroll)
