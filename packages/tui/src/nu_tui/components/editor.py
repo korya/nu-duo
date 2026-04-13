@@ -20,7 +20,7 @@ pass it ``width`` in :meth:`render` and wire callbacks yourself.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from nu_tui.component import Component
 from nu_tui.kill_ring import KillRing
@@ -179,6 +179,14 @@ class Editor(Component):
         self._last_action: str | None = None  # "kill" | "yank" | "type-word" | None
         self._undo_stack: UndoStack[EditorState] = UndoStack()
 
+        # Prompt history (up/down navigation)
+        self._history: list[str] = []
+        self._history_index: int = -1  # -1 = not browsing
+        self._saved_text: str = ""  # text before entering history mode
+
+        # Autocomplete (set via set_autocomplete_provider)
+        self._autocomplete_provider: Any = None
+
     # ------------------------------------------------------------------
     # Public state API
     # ------------------------------------------------------------------
@@ -200,6 +208,24 @@ class Editor(Component):
     def get_lines(self) -> list[str]:
         """Return a copy of the logical lines list."""
         return list(self._lines)
+
+    def add_to_history(self, text: str) -> None:
+        """Add a prompt to the history for up/down navigation."""
+        text = text.strip()
+        if not text:
+            return
+        # Deduplicate: remove if already at top
+        if self._history and self._history[0] == text:
+            return
+        self._history.insert(0, text)
+        # Cap at 100 entries
+        if len(self._history) > 100:
+            self._history = self._history[:100]
+        self._history_index = -1
+
+    def set_autocomplete_provider(self, provider: Any) -> None:
+        """Set the autocomplete provider for tab completion."""
+        self._autocomplete_provider = provider
 
     def get_cursor(self) -> tuple[int, int]:
         """Return the cursor position as ``(line_index, col_index)``."""
@@ -308,10 +334,18 @@ class Editor(Component):
             return
         if kb.matches(data, "tui.editor.cursorUp"):
             self._last_action = None
+            # History navigation: when on the first logical line, browse history
+            if self._cursor_line == 0 and self._history:
+                self._navigate_history(-1)
+                return
             self._move_cursor(-1, 0)
             return
         if kb.matches(data, "tui.editor.cursorDown"):
             self._last_action = None
+            # History navigation: when browsing history, go forward
+            if self._history_index >= 0:
+                self._navigate_history(1)
+                return
             self._move_cursor(1, 0)
             return
         if kb.matches(data, "tui.editor.cursorLineStart"):
@@ -674,6 +708,27 @@ class Editor(Component):
     # ------------------------------------------------------------------
     # Paste
     # ------------------------------------------------------------------
+
+    def _navigate_history(self, direction: int) -> None:
+        """Navigate prompt history. ``direction=-1`` = older, ``1`` = newer."""
+        if not self._history:
+            return
+        if self._history_index == -1:
+            # Entering history mode — save current text
+            self._saved_text = self.get_text()
+            self._history_index = 0
+        else:
+            self._history_index -= direction  # -1 = go older (higher index)
+
+        if self._history_index < 0:
+            # Back to the saved text (exiting history)
+            self._history_index = -1
+            self.set_text(self._saved_text)
+            return
+        if self._history_index >= len(self._history):
+            self._history_index = len(self._history) - 1
+
+        self.set_text(self._history[self._history_index])
 
     def _handle_paste(self, text: str, *, record_undo: bool = True) -> None:
         """Insert ``text`` (possibly multi-line) at the cursor."""

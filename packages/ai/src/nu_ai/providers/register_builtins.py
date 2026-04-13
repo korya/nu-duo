@@ -9,6 +9,8 @@ at startup. The Python port currently registers:
   Groq, Cerebras, xAI, OpenRouter, LMStudio, and any other provider that
   speaks the OpenAI Chat Completions wire format. The provider auto-detects
   per-vendor compat differences from ``model.provider`` / ``model.base_url``.
+* ``openai-responses`` — OpenAI Responses API (``/v1/responses``). Items-based
+  format with native tool call + reasoning support.
 * ``google-generative-ai`` — Google Gemini.
 
 This module is imported for its side-effect by :mod:`nu_ai.stream`.
@@ -22,6 +24,10 @@ from nu_ai.providers.google import stream_google, stream_simple_google
 from nu_ai.providers.openai_completions import (
     stream_openai_completions,
     stream_simple_openai_completions,
+)
+from nu_ai.providers.openai_responses import (
+    stream_openai_responses,
+    stream_simple_openai_responses,
 )
 
 _BUILTIN_SOURCE_ID = "nu-ai/builtins"
@@ -53,6 +59,17 @@ def _register_openai_completions() -> None:
     )
 
 
+def _register_openai_responses() -> None:
+    register_api_provider(
+        ApiProvider(
+            api="openai-responses",
+            stream=stream_openai_responses,  # type: ignore[arg-type]
+            stream_simple=stream_simple_openai_responses,  # type: ignore[arg-type]
+        ),
+        source_id=_BUILTIN_SOURCE_ID,
+    )
+
+
 def _register_google() -> None:
     register_api_provider(
         ApiProvider(
@@ -73,6 +90,7 @@ def register_builtin_providers() -> None:
     """
     _register_anthropic()
     _register_openai_completions()
+    _register_openai_responses()
     _register_google()
 
 

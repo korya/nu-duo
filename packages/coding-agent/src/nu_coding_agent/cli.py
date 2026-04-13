@@ -425,6 +425,50 @@ def _resolve_cwd_sync(arg: str | None) -> str:
     return str(Path(arg).resolve()) if arg else str(Path.cwd().resolve())
 
 
+def _load_agents_md(cwd: str) -> list[Any]:
+    """Walk up from *cwd* looking for ``AGENTS.md`` or ``.nu/AGENTS.md``.
+
+    Returns a list of :class:`ContextFile` instances (may be empty).
+    """
+    from nu_coding_agent.config import CONFIG_DIR_NAME  # noqa: PLC0415
+    from nu_coding_agent.core.system_prompt import ContextFile  # noqa: PLC0415
+
+    candidates = [
+        Path(cwd) / "AGENTS.md",
+        Path(cwd) / CONFIG_DIR_NAME / "AGENTS.md",
+    ]
+    # Also walk parents
+    for parent in Path(cwd).parents:
+        candidates.append(parent / "AGENTS.md")
+        candidates.append(parent / CONFIG_DIR_NAME / "AGENTS.md")
+
+    seen: set[str] = set()
+    result: list[Any] = []
+    for candidate in candidates:
+        resolved = str(candidate.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        if candidate.is_file():
+            try:
+                content = candidate.read_text(encoding="utf-8")
+                result.append(ContextFile(path=resolved, content=content))
+            except OSError:
+                pass
+    return result
+
+
+def _load_skills_for_prompt(cwd: str) -> list[Any]:
+    """Discover and load skills from standard directories.
+
+    Returns a list of :class:`Skill` instances.
+    """
+    from nu_coding_agent.core.skills import LoadSkillsOptions, load_skills  # noqa: PLC0415
+
+    result = load_skills(LoadSkillsOptions(cwd=cwd))
+    return result.skills
+
+
 def _build_session_manager(args: _Args, cwd: str) -> SessionManager:
     """Pick the SessionManager flavour based on the parsed CLI flags.
 
@@ -463,11 +507,17 @@ async def _run_print_mode(args: _Args, model: Model) -> int:
     # replaces the default identity/tools/guidelines block; otherwise the
     # default mentions the seven tools, the standard guidelines, and the
     # working directory + date footer.
+    # Load AGENTS.md and skills from disk
+    context_files = _load_agents_md(cwd)
+    skills = _load_skills_for_prompt(cwd)
+
     system_prompt = build_system_prompt(
         BuildSystemPromptOptions(
             custom_prompt=args.system_prompt,
             tools=tools,
             cwd=cwd,
+            context_files=context_files or None,
+            skills=skills or None,
         )
     )
 
@@ -492,6 +542,10 @@ async def _run_print_mode(args: _Args, model: Model) -> int:
     )
 
     if not args.quiet:
+        if context_files:
+            print(f"\033[2m[context] \033[0m {len(context_files)} AGENTS.md file(s) loaded")
+        if skills:
+            print(f"\033[2m[skills]  \033[0m {len(skills)} skill(s) loaded")
         print(f"\033[2m[provider]\033[0m {args.provider}")
         print(f"\033[2m[model]   \033[0m {model.id}")
         print(f"\033[2m[cwd]     \033[0m {cwd}")
@@ -591,11 +645,17 @@ async def _run_interactive_mode(args: _Args, model: Model) -> int:
     cwd = await asyncio.to_thread(_resolve_cwd_sync, args.cwd)
     tools: list[AgentTool[Any, Any]] = [] if args.no_tools else create_all_tools(cwd)
 
+    # Load AGENTS.md and skills from disk
+    context_files = _load_agents_md(cwd)
+    skills = _load_skills_for_prompt(cwd)
+
     system_prompt = build_system_prompt(
         BuildSystemPromptOptions(
             custom_prompt=args.system_prompt,
             tools=tools,
             cwd=cwd,
+            context_files=context_files or None,
+            skills=skills or None,
         )
     )
 
