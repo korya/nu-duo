@@ -653,7 +653,7 @@ def create_client(
     Returns ``(client, is_oauth_token)``. Imports the ``anthropic`` SDK
     lazily so unit tests that inject a fake client never pull it in.
     """
-    from anthropic import AsyncAnthropic  # noqa: PLC0415 — lazy import
+    from anthropic import AsyncAnthropic
 
     needs_interleaved_beta = interleaved_thinking and not supports_adaptive_thinking(model.id)
 

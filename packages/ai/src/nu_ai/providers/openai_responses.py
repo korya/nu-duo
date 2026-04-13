@@ -377,7 +377,7 @@ def build_params(
     if options is not None and options.cache_retention is not None:
         cache_retention = options.cache_retention
     else:
-        import os  # noqa: PLC0415
+        import os
 
         if os.environ.get("PI_CACHE_RETENTION") == "long":
             cache_retention = "long"
@@ -847,10 +847,10 @@ def create_client(
     options_headers: dict[str, str] | None = None,
 ) -> Any:
     """Construct an :class:`openai.AsyncOpenAI` client configured for ``model``."""
-    from openai import AsyncOpenAI  # noqa: PLC0415 — lazy import
+    from openai import AsyncOpenAI
 
     if not api_key:
-        import os  # noqa: PLC0415
+        import os
 
         env_key = os.environ.get("OPENAI_API_KEY")
         if not env_key:

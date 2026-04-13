@@ -642,10 +642,10 @@ def create_client(
     in the SDK. For GitHub Copilot models the per-request dynamic headers
     (``X-Initiator``, vision toggle) are merged in here.
     """
-    from openai import AsyncOpenAI  # noqa: PLC0415 — lazy import
+    from openai import AsyncOpenAI
 
     if not api_key:
-        import os  # noqa: PLC0415
+        import os
 
         env_key = os.environ.get("OPENAI_API_KEY")
         if not env_key:
@@ -966,7 +966,7 @@ def stream_simple_openai_completions(
     Lowers the unified ``reasoning`` level into ``reasoning_effort``, clamping
     ``xhigh`` down to ``high`` on models that don't support it (``supports_xhigh``).
     """
-    from nu_ai.types import OpenAICompletionsOptions as _OpenAIOptions  # noqa: PLC0415
+    from nu_ai.types import OpenAICompletionsOptions as _OpenAIOptions
 
     base = build_base_options(model, options)
     if options is not None and options.reasoning is not None:

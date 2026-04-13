@@ -85,6 +85,7 @@ ignore = [
 "**/nu_mom/**" = ["PLC0415", "ASYNC230", "ASYNC240", "RUF006", "B007", "B904"]
 "**/nu_web_ui/**" = ["PLC0415", "ASYNC109", "ASYNC230", "ASYNC240", "RUF006", "PLW0603", "SIM105"]
 "examples/**" = ["PLC0415", "ASYNC240"]
+"**/nu_ai/providers/**" = ["PLC0415", "SIM117", "PLW2901", "B007"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -164,6 +165,14 @@ omit = [
     "*/nu_mom/*",
     # Web UI backend — needs FastAPI test client for integration tests
     "*/nu_web_ui/*",
+    # LLM providers — need real API keys for full integration tests
+    "*/nu_ai/providers/amazon_bedrock.py",
+    "*/nu_ai/providers/mistral.py",
+    "*/nu_ai/providers/google_vertex.py",
+    "*/nu_ai/providers/google_shared.py",
+    "*/nu_ai/providers/google_gemini_cli.py",
+    "*/nu_ai/providers/openai_codex_responses.py",
+    "*/nu_ai/providers/azure_openai_responses.py",
 ]
 disable_warnings = ["module-not-imported", "no-data-collected"]
 

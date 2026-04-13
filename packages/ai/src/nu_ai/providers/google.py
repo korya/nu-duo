@@ -584,7 +584,7 @@ def create_client(
     Imports ``google.genai`` lazily so tests that inject a fake client
     never pull in the SDK.
     """
-    from google.genai import Client  # noqa: PLC0415 — lazy import
+    from google.genai import Client
 
     http_options: dict[str, Any] = {}
     if model.base_url:
@@ -905,8 +905,8 @@ def stream_simple_google(
     * Gemini 3 Pro / Flash / Gemma 4 → use ``thinking_level`` (categorical).
     * Gemini 2.x → use ``thinking_budget`` (token budget).
     """
-    from nu_ai.types import GoogleOptions as _GoogleOptions  # noqa: PLC0415
-    from nu_ai.types import GoogleThinkingOptions  # noqa: PLC0415
+    from nu_ai.types import GoogleOptions as _GoogleOptions
+    from nu_ai.types import GoogleThinkingOptions
 
     base = build_base_options(model, options)
     if options is None or options.reasoning is None:
