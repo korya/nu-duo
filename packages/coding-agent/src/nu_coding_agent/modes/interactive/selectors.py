@@ -415,6 +415,116 @@ class OAuthSelectorScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+# ---------------------------------------------------------------------------
+# Thinking Level Selector — /thinking
+# ---------------------------------------------------------------------------
+
+_THINKING_DESCRIPTIONS: dict[str, str] = {
+    "off": "No reasoning",
+    "minimal": "Very brief reasoning (~1k tokens)",
+    "low": "Light reasoning (~2k tokens)",
+    "medium": "Moderate reasoning (~8k tokens)",
+    "high": "Deep reasoning (~16k tokens)",
+    "xhigh": "Maximum reasoning (~32k tokens)",
+}
+
+
+class ThinkingSelectorScreen(ModalScreen[str | None]):
+    """Modal that lists available thinking levels and returns the chosen one.
+
+    Port of ``ThinkingSelectorComponent`` (thinking-selector.ts).
+    """
+
+    CSS = """
+    ThinkingSelectorScreen {
+        align: center middle;
+    }
+    #thinking-box {
+        width: 60;
+        max-height: 80%;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    """
+
+    BINDINGS = [  # noqa: RUF012
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, current_level: str, available_levels: list[str]) -> None:
+        super().__init__()
+        self._current = current_level
+        self._available = available_levels
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="thinking-box"):
+            yield Label("Select thinking level (Enter to confirm, Escape to cancel):")
+            items = []
+            for level in self._available:
+                marker = "* " if level == self._current else "  "
+                desc = _THINKING_DESCRIPTIONS.get(level, "")
+                label_text = f"{marker}{level}" + (f"  —  {desc}" if desc else "")
+                items.append(ListItem(Label(label_text), name=level))
+            yield ListView(*items, id="thinking-list")
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.dismiss(event.item.name)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+# ---------------------------------------------------------------------------
+# Show Images Selector — /images
+# ---------------------------------------------------------------------------
+
+
+class ShowImagesSelectorScreen(ModalScreen[bool | None]):
+    """Modal that asks whether to show images inline.
+
+    Port of ``ShowImagesSelectorComponent`` (show-images-selector.ts).
+    """
+
+    CSS = """
+    ShowImagesSelectorScreen {
+        align: center middle;
+    }
+    #images-box {
+        width: 50;
+        max-height: 40%;
+        border: thick $accent;
+        background: $surface;
+        padding: 1 2;
+    }
+    """
+
+    BINDINGS = [  # noqa: RUF012
+        ("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, current_value: bool) -> None:
+        super().__init__()
+        self._current = current_value
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="images-box"):
+            yield Label("Show images inline? (Enter to confirm, Escape to cancel):")
+            items = [
+                ListItem(
+                    Label(("* " if self._current else "  ") + "Yes  —  Show images inline in terminal"), name="yes"
+                ),
+                ListItem(Label(("  " if self._current else "* ") + "No   —  Show text placeholder instead"), name="no"),
+            ]
+            yield ListView(*items, id="images-list")
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.dismiss(event.item.name == "yes")
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 __all__ = [
     "ForkSelectorScreen",
     "ModelPickerScreen",
@@ -422,5 +532,7 @@ __all__ = [
     "ResumeSelectorScreen",
     "SessionListScreen",
     "SettingsScreen",
+    "ShowImagesSelectorScreen",
     "ThemeSwitcherScreen",
+    "ThinkingSelectorScreen",
 ]
