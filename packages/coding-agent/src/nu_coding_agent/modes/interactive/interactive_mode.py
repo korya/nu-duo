@@ -37,6 +37,7 @@ from nu_tui.components.loader import Loader as NuLoader
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
+from textual.suggester import SuggestFromList
 from textual.widgets import Header, Input, Static
 
 from nu_coding_agent.modes.interactive.components.custom_message import CustomMessageWidget
@@ -59,6 +60,14 @@ if TYPE_CHECKING:
     from nu_coding_agent.core.agent_session import AgentSession
 
 _BASH_TOOL_NAMES = {"bash", "Bash"}
+
+# Slash commands for autocomplete
+_SLASH_COMMANDS = [
+    "/help", "/exit", "/quit", "/model", "/models", "/compact", "/clear",
+    "/session", "/sessions", "/settings", "/theme", "/export", "/copy",
+    "/name", "/changelog", "/hotkeys", "/fork", "/resume", "/login",
+    "/logout", "/new", "/reload", "/share", "/import", "/thinking", "/debug",
+]
 
 
 class _ThinkingBlockWidget(Static):
@@ -251,6 +260,7 @@ class InteractiveApp(App[None]):
         yield Input(
             placeholder=f"Message ({model_name}) — /help for commands",
             id="prompt-input",
+            suggester=SuggestFromList(_SLASH_COMMANDS, case_sensitive=False),
         )
         yield InteractiveFooter(self._session)
 
