@@ -8,6 +8,7 @@ with Escape and are launched by slash commands in the REPL.
 
 from __future__ import annotations
 
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from textual import work
@@ -64,6 +65,10 @@ class ModelPickerScreen(ModalScreen[str | None]):
                 items.append(ListItem(Label(f"{marker}{m.provider}/{m.id}"), name=m.id))
             yield ListView(*items, id="model-list")
 
+    def on_mount(self) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#model-list", ListView).focus()
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         model_id = event.item.name
         self.dismiss(model_id)
@@ -115,6 +120,10 @@ class SessionListScreen(ModalScreen[str | None]):
             else:
                 yield ListView(*items, id="session-list")
 
+    def on_mount(self) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#session-list", ListView).focus()
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.dismiss(event.item.name)
 
@@ -155,6 +164,10 @@ class ThemeSwitcherScreen(ModalScreen[str | None]):
                 ListItem(Label("light"), name="light"),
                 id="theme-list",
             )
+
+    def on_mount(self) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#theme-list", ListView).focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.dismiss(event.item.name)
@@ -260,6 +273,10 @@ class ForkSelectorScreen(ModalScreen[tuple[str, str] | None]):
                 yield Label("  No user messages to fork from.")
             else:
                 yield ListView(*items, id="fork-list")
+
+    def on_mount(self) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#fork-list", ListView).focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         entry_id = event.item.name or ""
@@ -408,6 +425,10 @@ class OAuthSelectorScreen(ModalScreen[str | None]):
                 items = [ListItem(Label(p), name=p) for p in providers]
                 yield ListView(*items, id="oauth-list")
 
+    def on_mount(self) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#oauth-list", ListView).focus()
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.dismiss(event.item.name)
 
@@ -468,6 +489,10 @@ class ThinkingSelectorScreen(ModalScreen[str | None]):
                 items.append(ListItem(Label(label_text), name=level))
             yield ListView(*items, id="thinking-list")
 
+    def on_mount(self) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#thinking-list", ListView).focus()
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.dismiss(event.item.name)
 
@@ -517,6 +542,10 @@ class ShowImagesSelectorScreen(ModalScreen[bool | None]):
                 ListItem(Label(("  " if self._current else "* ") + "No   —  Show text placeholder instead"), name="no"),
             ]
             yield ListView(*items, id="images-list")
+
+    def on_mount(self) -> None:
+        with contextlib.suppress(Exception):
+            self.query_one("#images-list", ListView).focus()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         self.dismiss(event.item.name == "yes")
