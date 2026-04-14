@@ -1,36 +1,22 @@
-"""Extension surface types — slice-1 subset of ``packages/coding-agent/src/core/extensions/types.ts``.
+"""Extension surface types — port of ``packages/coding-agent/src/core/extensions/types.ts``.
 
-The upstream TS file is 1450 LoC and exports 127 symbols spanning every
-hook the coding agent emits, plus tool / command / shortcut / flag /
-message-renderer registration, plus action handlers (sendMessage,
-appendEntry, setLabel, setModel, …). This Python port is the **first**
-of several extension slices and intentionally covers only the
-foundation:
+Covers the full extension registration surface:
 
-* The dataclass shape of an :class:`Extension` instance.
-* The lifecycle event payloads — agent / message / tool / session +
-  the corresponding handler protocol.
-* :class:`ExtensionContext` and :class:`ExtensionRuntime` skeletons.
-* :class:`ExtensionAPI` as a runtime-checkable :class:`typing.Protocol`
-  with the methods that are actually wired in this slice.
+* :class:`Extension` dataclass — holds registered handlers, tools,
+  commands, shortcuts, flags, and message renderers.
+* Lifecycle event payloads — agent / message / tool / session /
+  compaction events and the corresponding handler protocol.
+* :class:`ExtensionContext` and :class:`ExtensionRuntime` — per-call
+  context and shared mutable state with session-aware action slots.
+* :class:`ExtensionAPI` — the protocol handed to extension factories,
+  supporting ``on``, ``register_tool``, ``register_command``,
+  ``register_shortcut``, ``register_flag``,
+  ``register_message_renderer``, and all action methods.
 
-Out of scope (will land in follow-up slices):
+Still deferred:
 
-* ``registerTool`` / tool definition wrapping (depends on the
-  tool-definition-wrapper port).
-* ``registerCommand`` / ``registerShortcut`` / ``registerFlag`` /
-  ``registerMessageRenderer`` (none of these have a consumer in the
-  Python port yet — interactive mode and slash-commands are deferred).
-* ``registerProvider`` (custom provider injection — needs the model
-  registry's per-extension state machine).
-* The UI context surface (:class:`ExtensionUIContext`) — interactive
-  mode only.
-* The specialised ``emitToolCall`` / ``emitToolResult`` / ``emitInput``
-  paths that compose handler results back into the agent loop. The
-  generic :meth:`ExtensionRunner.emit` is enough for fire-and-forget
-  lifecycle events used by tests today.
-* Wiring into :class:`AgentSession`. The runner is exercised in
-  isolation in this slice.
+* ``registerProvider`` (custom provider injection).
+* The UI context surface (:class:`ExtensionUIContext`).
 
 The naming follows the rest of the port: TS ``camelCase`` becomes
 Python ``snake_case`` for fields and method names, class names stay
