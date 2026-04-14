@@ -7,9 +7,11 @@ fake async client that yields scripted Responses API events.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from nu_ai.providers.openai_responses import (
@@ -1194,6 +1196,292 @@ class TestToDict:
         result = _to_dict(obj)
         assert result is not None
         assert result["x"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage: _get, create_client, CancelledError, cache_retention,
+# ThinkingContent invalid JSON signature, empty content_list guards
+# ---------------------------------------------------------------------------
+
+
+class TestGetHelper:
+    def test_get_none(self) -> None:
+        from nu_ai.providers.openai_responses import _get
+
+        assert _get(None, "key") is None
+
+    def test_get_dict(self) -> None:
+        from nu_ai.providers.openai_responses import _get
+
+        assert _get({"a": 1}, "a") == 1
+        assert _get({"a": 1}, "b") is None
+
+    def test_get_object(self) -> None:
+        from types import SimpleNamespace
+
+        from nu_ai.providers.openai_responses import _get
+
+        obj = SimpleNamespace(foo="bar")
+        assert _get(obj, "foo") == "bar"
+        assert _get(obj, "missing") is None
+
+
+class TestBuildParamsCacheRetention:
+    def test_long_cache_retention_with_openai_url(self) -> None:
+        model = _model(base_url="https://api.openai.com/v1")
+        ctx = _ctx()
+        opts = OpenAIResponsesOptions(
+            cache_retention="long",
+            session_id="sess-123",
+        )
+        params = build_params(model, ctx, opts)
+        assert params.get("prompt_cache_retention") == "24h"
+        assert params.get("prompt_cache_key") == "sess-123"
+
+    def test_long_cache_non_openai_url_no_prompt_cache(self) -> None:
+        model = _model(base_url="https://custom.proxy.com/v1")
+        ctx = _ctx()
+        opts = OpenAIResponsesOptions(cache_retention="long", session_id="s1")
+        params = build_params(model, ctx, opts)
+        assert params.get("prompt_cache_retention") is None
+
+    def test_env_based_cache_retention(self) -> None:
+        import os
+
+        model = _model(base_url="https://api.openai.com/v1")
+        ctx = _ctx()
+        with patch.dict(os.environ, {"PI_CACHE_RETENTION": "long"}):
+            params = build_params(model, ctx)  # No options
+        assert params.get("prompt_cache_retention") == "24h"
+
+
+class TestCreateClient:
+    def test_create_client_with_env_key(self) -> None:
+        from nu_ai.providers.openai_responses import create_client
+
+        model = _model()
+        ctx = _ctx()
+        mock_client = MagicMock()
+        mock_openai_class = MagicMock(return_value=mock_client)
+        with (
+            patch.dict("sys.modules", {"openai": MagicMock(AsyncOpenAI=mock_openai_class)}),
+            patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test-key"}),
+        ):
+            client = create_client(model, ctx)
+        assert client is mock_client
+
+    def test_create_client_missing_key_raises(self) -> None:
+        from nu_ai.providers.openai_responses import create_client
+
+        model = _model()
+        ctx = _ctx()
+        mock_openai_class = MagicMock()
+        with (
+            patch.dict("sys.modules", {"openai": MagicMock(AsyncOpenAI=mock_openai_class)}),
+            patch.dict("os.environ", {}, clear=False),
+        ):
+            import os
+            os.environ.pop("OPENAI_API_KEY", None)
+            with pytest.raises(ValueError, match="API key is required"):
+                create_client(model, ctx)
+
+    def test_create_client_with_copilot_headers(self) -> None:
+        from nu_ai.providers.openai_responses import create_client
+
+        model = _model(provider="github-copilot")
+        ctx = _ctx()
+        mock_client = MagicMock()
+        mock_openai_class = MagicMock(return_value=mock_client)
+        with (
+            patch.dict("sys.modules", {"openai": MagicMock(AsyncOpenAI=mock_openai_class)}),
+            patch("nu_ai.providers.openai_responses.build_copilot_dynamic_headers", return_value={"X-Copilot": "1"}),
+            patch("nu_ai.providers.openai_responses.has_copilot_vision_input", return_value=False),
+        ):
+            client = create_client(model, ctx, api_key="ghc-token")
+        assert client is mock_client
+        call_kwargs = mock_openai_class.call_args[1]
+        assert "X-Copilot" in (call_kwargs.get("default_headers") or {})
+
+    def test_create_client_with_options_headers(self) -> None:
+        from nu_ai.providers.openai_responses import create_client
+
+        model = _model()
+        ctx = _ctx()
+        mock_client = MagicMock()
+        mock_openai_class = MagicMock(return_value=mock_client)
+        with patch.dict("sys.modules", {"openai": MagicMock(AsyncOpenAI=mock_openai_class)}):
+            client = create_client(model, ctx, api_key="sk-key", options_headers={"X-Custom": "val"})
+        call_kwargs = mock_openai_class.call_args[1]
+        assert call_kwargs["default_headers"]["X-Custom"] == "val"
+
+
+class TestStreamCancelledError:
+    async def test_cancelled_error_emits_aborted(self) -> None:
+        """CancelledError triggers an ErrorEvent with reason=aborted."""
+        model = _model()
+        ctx = _ctx()
+
+        class _CancellingStream:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise asyncio.CancelledError()
+
+        class _CancellingResponses:
+            async def create(self, **_: Any) -> _CancellingStream:
+                return _CancellingStream()
+
+        class _CancellingClient:
+            responses = _CancellingResponses()
+
+        events = [e async for e in stream_openai_responses(model, ctx, client=_CancellingClient())]  # type: ignore[arg-type]
+        err_events = [e for e in events if isinstance(e, ErrorEvent)]
+        assert len(err_events) == 1
+        assert err_events[0].reason == "aborted"
+
+
+class TestStreamErrorStopReason:
+    async def test_error_stop_reason_raises(self) -> None:
+        """When output.stop_reason is 'error' after stream, an ErrorEvent is emitted."""
+        events = [
+            {"type": "response.created", "response": {"id": "r_err"}},
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "r_err",
+                    "status": "failed",
+                    "usage": {"input_tokens": 1, "output_tokens": 0, "total_tokens": 1},
+                },
+            },
+        ]
+        fake = _FakeAsyncOpenAI(events)
+        all_events = [e async for e in stream_openai_responses(_model(), _ctx(), client=fake)]
+        assert all_events[-1].type == "error"
+        assert isinstance(all_events[-1], ErrorEvent)
+
+
+class TestThinkingInvalidSignature:
+    def test_thinking_with_invalid_json_signature_skipped(self) -> None:
+        """ThinkingContent with non-JSON signature is silently skipped."""
+        model = _model()
+        ctx = Context(
+            messages=[
+                UserMessage(content="hi", timestamp=1),
+                _assistant(
+                    content=[
+                        ThinkingContent(thinking="hmm", thinking_signature="not-json{{{"),
+                        TextContent(text="answer"),
+                    ]
+                ),
+            ]
+        )
+        msgs = convert_responses_messages(model, ctx)
+        # No reasoning items should appear (invalid JSON caught)
+        reasoning_items = [m for m in msgs if m.get("type") == "reasoning"]
+        assert len(reasoning_items) == 0
+
+
+class TestTextDeltaEmptyContent:
+    async def test_text_delta_on_empty_content_skipped(self) -> None:
+        """A text delta arriving when current_item has no content parts is skipped."""
+        events = [
+            {"type": "response.created", "response": {"id": "r1"}},
+            {
+                "type": "response.output_item.added",
+                "item": {"type": "message", "id": "msg_e", "content": []},
+            },
+            # No content_part.added, so content list stays empty
+            # Delta arrives → should be skipped
+            {"type": "response.output_text.delta", "delta": "orphan"},
+            {
+                "type": "response.output_item.done",
+                "item": {"type": "message", "id": "msg_e", "content": []},
+            },
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "r1",
+                    "status": "completed",
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            },
+        ]
+        output, collected = await _collect_events(events)
+        deltas = [e for e in collected if isinstance(e, TextDeltaEvent)]
+        # The delta on empty content should be skipped
+        assert len(deltas) == 0
+
+
+class TestRefusalDeltaEmptyContent:
+    async def test_refusal_delta_on_empty_content_skipped(self) -> None:
+        events = [
+            {"type": "response.created", "response": {"id": "r1"}},
+            {
+                "type": "response.output_item.added",
+                "item": {"type": "message", "id": "msg_r", "content": []},
+            },
+            # No content_part.added
+            {"type": "response.refusal.delta", "delta": "orphan"},
+            {
+                "type": "response.output_item.done",
+                "item": {"type": "message", "id": "msg_r", "content": []},
+            },
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "r1",
+                    "status": "completed",
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            },
+        ]
+        output, collected = await _collect_events(events)
+        # No text deltas from refusal
+        deltas = [e for e in collected if isinstance(e, TextDeltaEvent)]
+        assert len(deltas) == 0
+
+
+class TestFunctionCallOutputItemDone:
+    async def test_function_call_done_with_non_dict_item(self) -> None:
+        """output_item.done for function_call where item is a SimpleNamespace."""
+        from types import SimpleNamespace
+
+        item_ns = SimpleNamespace(
+            type="function_call",
+            id="fc_x",
+            call_id="c_x",
+            name="fn",
+            arguments='{"a": 1}',
+        )
+        events = [
+            {
+                "type": "response.output_item.added",
+                "item": {"type": "function_call", "id": "fc_x", "call_id": "c_x", "name": "fn", "arguments": ""},
+            },
+            {"type": "response.function_call_arguments.done", "arguments": '{"a": 1}'},
+            {
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc_x",
+                    "call_id": "c_x",
+                    "name": "fn",
+                    "arguments": '{"a": 1}',
+                },
+            },
+            {
+                "type": "response.completed",
+                "response": {
+                    "status": "completed",
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            },
+        ]
+        output, collected = await _collect_events(events)
+        end_events = [e for e in collected if isinstance(e, ToolCallEndEvent)]
+        assert len(end_events) == 1
+        assert end_events[0].tool_call.arguments == {"a": 1}
 
 
 class TestSdkEventToDict:
