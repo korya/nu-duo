@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Any
 
 from nu_tui.component_widget import ComponentWidget
 from nu_tui.components import Markdown as NuMarkdown
-from nu_tui.components import Text as NuText
 from nu_tui.components.loader import Loader as NuLoader
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -63,7 +62,11 @@ _BASH_TOOL_NAMES = {"bash", "Bash"}
 
 
 class _StreamingComponentWidget(ComponentWidget):
-    """ComponentWidget that accumulates streaming text deltas."""
+    """ComponentWidget that streams markdown progressively.
+
+    Uses :class:`NuMarkdown` from the start so deltas are rendered
+    as formatted markdown while they arrive, not just on finalize.
+    """
 
     DEFAULT_CSS = """
     _StreamingComponentWidget {
@@ -75,23 +78,24 @@ class _StreamingComponentWidget(ComponentWidget):
     """
 
     def __init__(self) -> None:
-        self._text_component = NuText("")
-        super().__init__(self._text_component)
+        self._md_component = NuMarkdown("")
+        super().__init__(self._md_component)
         self._chunks: list[str] = []
 
     def append_delta(self, delta: str) -> None:
         self._chunks.append(delta)
-        self._text_component.set_text("".join(self._chunks))
+        self._md_component.set_text("".join(self._chunks))
         self.refresh_component()
 
     def get_text(self) -> str:
         return "".join(self._chunks)
 
     def finalize_as_markdown(self) -> None:
+        """Final re-render — ensures the complete text is laid out."""
         text = self.get_text()
         if text.strip():
-            md = NuMarkdown(text)
-            self.set_component(md)
+            self._md_component.set_text(text)
+            self.refresh_component()
 
 
 class InteractiveApp(App[None]):
@@ -150,6 +154,12 @@ class InteractiveApp(App[None]):
         self._tool_widgets: dict[str, ToolExecutionWidget | BashExecutionWidget] = {}
         # Running !command subprocess (None when idle)
         self._bash_proc: Any | None = None
+        # Emacs-style kill ring for the prompt input (ctrl+w / ctrl+y)
+        self._kill_ring: list[str] = []
+        # Input history (arrow up/down)
+        self._input_history: list[str] = []
+        self._history_index: int = -1  # -1 = not browsing
+        self._history_stash: str = ""  # saves current input when entering history
 
     def action_interrupt_or_quit(self) -> None:
         """Ctrl+C: kill a running !command subprocess, or exit when idle."""
@@ -185,6 +195,179 @@ class InteractiveApp(App[None]):
         )
         yield InteractiveFooter(self._session)
 
+    def on_key(self, event: Any) -> None:
+        """Readline-style kill ring and missing navigation for the prompt input.
+
+        Textual's :class:`Input` handles the deletion half of ``ctrl+w``,
+        ``ctrl+u``, ``ctrl+k``, and ``ctrl+f`` (delete word right — note:
+        NOT cursor-forward) but has no kill ring, so ``ctrl+y`` (yank) is
+        a no-op.  We intercept the kill keys *before* Textual processes
+        them to capture the doomed text, then let Textual do the actual
+        deletion.  ``ctrl+y`` is handled entirely by us.
+
+        We also add a few readline keys that Textual's ``Input`` doesn't
+        bind at all: ``ctrl+b`` (cursor left), ``alt+b`` / ``alt+f``
+        (word left/right), ``alt+d`` (kill word forward), and ``ctrl+t``
+        (transpose characters).
+        """
+        key = getattr(event, "key", "")
+        inp = self.query_one("#prompt-input", Input)
+        if inp is not self.focused:
+            return
+
+        value = inp.value
+        cursor = inp.cursor_position
+
+        # -- Kill operations (capture text, then let Textual delete) ------
+
+        if key == "ctrl+w":
+            # Kill word backward
+            i = cursor
+            while i > 0 and value[i - 1] == " ":
+                i -= 1
+            while i > 0 and value[i - 1] != " ":
+                i -= 1
+            killed = value[i:cursor]
+            if killed:
+                self._kill_ring.append(killed)
+            return  # Textual handles the deletion
+
+        if key == "ctrl+u":
+            # Kill to start of line
+            killed = value[:cursor]
+            if killed:
+                self._kill_ring.append(killed)
+            return
+
+        if key == "ctrl+k":
+            # Kill to end of line
+            killed = value[cursor:]
+            if killed:
+                self._kill_ring.append(killed)
+            return
+
+        if key == "ctrl+f":
+            # Textual binds ctrl+f to "delete word right" (not cursor-forward).
+            # Capture the killed word for the ring.
+            i = cursor
+            while i < len(value) and value[i] == " ":
+                i += 1
+            while i < len(value) and value[i] != " ":
+                i += 1
+            killed = value[cursor:i]
+            if killed:
+                self._kill_ring.append(killed)
+            return
+
+        # -- Yank ---------------------------------------------------------
+
+        if key == "ctrl+y":
+            event.prevent_default()
+            event.stop()
+            if self._kill_ring:
+                text = self._kill_ring[-1]
+                inp.value = value[:cursor] + text + value[cursor:]
+                inp.cursor_position = cursor + len(text)
+            return
+
+        # -- Missing readline navigation ----------------------------------
+
+        if key == "ctrl+b":
+            # Cursor left (Textual only binds the arrow key)
+            event.prevent_default()
+            event.stop()
+            if cursor > 0:
+                inp.cursor_position = cursor - 1
+            return
+
+        if key == "alt+b":
+            # Word left
+            event.prevent_default()
+            event.stop()
+            i = cursor
+            while i > 0 and value[i - 1] == " ":
+                i -= 1
+            while i > 0 and value[i - 1] != " ":
+                i -= 1
+            inp.cursor_position = i
+            return
+
+        if key == "alt+f":
+            # Word right
+            event.prevent_default()
+            event.stop()
+            i = cursor
+            while i < len(value) and value[i] == " ":
+                i += 1
+            while i < len(value) and value[i] != " ":
+                i += 1
+            inp.cursor_position = i
+            return
+
+        if key == "alt+d":
+            # Kill word forward (not natively in Textual)
+            event.prevent_default()
+            event.stop()
+            i = cursor
+            while i < len(value) and value[i] == " ":
+                i += 1
+            while i < len(value) and value[i] != " ":
+                i += 1
+            killed = value[cursor:i]
+            if killed:
+                self._kill_ring.append(killed)
+            inp.value = value[:cursor] + value[i:]
+            inp.cursor_position = cursor
+            return
+
+        if key == "ctrl+t":
+            # Transpose characters
+            event.prevent_default()
+            event.stop()
+            if cursor >= 2:
+                chars = list(value)
+                chars[cursor - 2], chars[cursor - 1] = chars[cursor - 1], chars[cursor - 2]
+                inp.value = "".join(chars)
+                inp.cursor_position = cursor
+            elif cursor == 1 and len(value) >= 2:
+                chars = list(value)
+                chars[0], chars[1] = chars[1], chars[0]
+                inp.value = "".join(chars)
+                inp.cursor_position = min(cursor + 1, len(value))
+            return
+
+        # -- Input history (arrow up / down) ------------------------------
+
+        if key == "up" and self._input_history:
+            event.prevent_default()
+            event.stop()
+            if self._history_index == -1:
+                # Entering history — stash whatever is currently typed
+                self._history_stash = value
+                self._history_index = len(self._input_history) - 1
+            elif self._history_index > 0:
+                self._history_index -= 1
+            else:
+                return  # already at oldest
+            inp.value = self._input_history[self._history_index]
+            inp.cursor_position = len(inp.value)
+            return
+
+        if key == "down":
+            event.prevent_default()
+            event.stop()
+            if self._history_index == -1:
+                return  # not browsing history
+            if self._history_index < len(self._input_history) - 1:
+                self._history_index += 1
+                inp.value = self._input_history[self._history_index]
+            else:
+                # Past newest entry — restore stashed input
+                self._history_index = -1
+                inp.value = self._history_stash
+            inp.cursor_position = len(inp.value)
+            return
+
     def on_mount(self) -> None:
         self.sub_title = f"cwd: {self._session.cwd}"
         self._restore_history()
@@ -196,7 +379,9 @@ class InteractiveApp(App[None]):
 
         Mirrors the upstream's ``addMessageToChat`` loop that runs on
         ``TUI.run()`` to populate the chat container from the session
-        branch before the first prompt.
+        branch before the first prompt. Also populates the input history
+        from user messages so arrow-up works across restarts (matching
+        pi's ``populateHistory: true`` behaviour).
         """
         area = self.query_one("#message-area", VerticalScroll)
         sm = self._session.session_manager
@@ -204,6 +389,15 @@ class InteractiveApp(App[None]):
             widget = _widget_for_entry(entry, self._session)
             if widget is not None:
                 area.mount(widget)
+            # Populate input history from user messages
+            if isinstance(entry, dict) and entry.get("type") == "message":
+                msg = entry.get("message")
+                if msg is not None:
+                    role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+                    if role == "user":
+                        text = _extract_user_text(msg)
+                        if text and (not self._input_history or self._input_history[-1] != text):
+                            self._input_history.append(text)
 
     # ------------------------------------------------------------------
     # Slash commands
@@ -792,6 +986,12 @@ Type `/help` to see all slash commands.
         if not text:
             return
 
+        # Save to history (dedup consecutive identical entries)
+        if not self._input_history or self._input_history[-1] != text:
+            self._input_history.append(text)
+        self._history_index = -1
+        self._history_stash = ""
+
         event.input.value = ""
 
         # Handle bash exec prefix (! or !!) before slash-command check
@@ -834,6 +1034,13 @@ Type `/help` to see all slash commands.
         area.mount(assistant_widget)
 
         def listener(event: Any) -> None:
+            # NOTE: This listener runs inside the async event loop (not a
+            # thread) because _run_prompt is ``@work(thread=False)``.  We
+            # must NOT use ``call_from_thread`` — that queues callbacks that
+            # cannot execute until the awaited prompt() yields, so all
+            # updates would be batched until the prompt finishes.  Instead
+            # we mutate the widgets directly and call ``refresh()`` to
+            # request a repaint.
             event_type = event["type"]
 
             if event_type == "message_update":
@@ -843,30 +1050,30 @@ Type `/help` to see all slash commands.
                     if inner_type == "text_delta":
                         delta = getattr(inner, "delta", "")
                         if delta:
-                            self.call_from_thread(assistant_widget.append_delta, delta)
+                            assistant_widget.append_delta(delta)
 
             elif event_type == "message_start":
                 msg = event.get("message")
                 role = getattr(msg, "role", None)
                 if role == "custom":
-                    self.call_from_thread(self._mount_custom_message, msg)
+                    self._mount_custom_message(msg)
 
             elif event_type == "tool_execution_start" and not self._quiet:
                 tool_name = str(event.get("tool_name", ""))
                 args: dict[str, Any] = event.get("args") or {}
                 tool_call_id = str(event.get("tool_call_id", ""))
-                self.call_from_thread(self._on_tool_start, tool_call_id, tool_name, args)
+                self._on_tool_start(tool_call_id, tool_name, args)
 
             elif event_type == "tool_execution_update" and not self._quiet:
                 tool_call_id = str(event.get("tool_call_id", ""))
                 partial = event.get("partial_result")
-                self.call_from_thread(self._on_tool_update, tool_call_id, partial)
+                self._on_tool_update(tool_call_id, partial)
 
             elif event_type == "tool_execution_end" and not self._quiet:
                 tool_call_id = str(event.get("tool_call_id", ""))
                 is_error = bool(event.get("is_error", False))
                 result = event.get("result")
-                self.call_from_thread(self._on_tool_end, tool_call_id, is_error, result)
+                self._on_tool_end(tool_call_id, is_error, result)
 
         unsub = self._session.subscribe(listener)
 
@@ -1190,6 +1397,19 @@ def _widget_for_entry(entry: dict[str, Any], session: Any) -> Any:
             return w
 
     return None
+
+
+def _extract_user_text(msg: Any) -> str:
+    """Extract the plain-text body from a user message (dict or Pydantic)."""
+    content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return block.get("text", "").strip()
+            if hasattr(block, "type") and getattr(block, "type", None) == "text":
+                return getattr(block, "text", "").strip()
+        return ""
+    return str(content).strip()
 
 
 def _extract_text_content(result: Any) -> str:

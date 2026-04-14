@@ -76,20 +76,31 @@ class ComponentWidget(Widget):
         return self._component
 
     def set_component(self, component: Component) -> None:
-        """Replace the wrapped component and trigger a repaint."""
+        """Replace the wrapped component and trigger a repaint + relayout."""
         self._component = component
         self._cached_lines = None
-        self.refresh()
+        self.refresh(layout=True)
 
     def refresh_component(self) -> None:
-        """Invalidate the cache and trigger a repaint.
+        """Invalidate the cache and trigger a repaint + relayout.
 
         Call this after mutating the component's internal state
         (e.g. ``Text.set_text(...)`` or ``Loader.set_message(...)``).
+        The ``layout=True`` flag is critical — without it Textual
+        repaints but does **not** recalculate the widget height, so
+        growing content (e.g. streaming deltas) stays clipped to
+        the original 1-line height.
         """
         self._cached_lines = None
         self._component.invalidate()
-        self.refresh()
+        self.refresh(layout=True)
+
+    def get_content_height(self, container: object, viewport: object, width: int) -> int:
+        """Tell Textual how many lines the component needs at *width*."""
+        lines = self._component.render(width)
+        self._cached_lines = lines
+        self._cached_width = width
+        return max(1, len(lines)) if lines else 1
 
     def render(self) -> RichText:
         width = self.size.width if self.size.width > 0 else 80
