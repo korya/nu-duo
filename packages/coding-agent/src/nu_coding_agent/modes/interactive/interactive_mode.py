@@ -284,6 +284,17 @@ class InteractiveApp(App[None]):
         if inp is not self.focused:
             return
 
+        # -- Tab: accept autocomplete suggestion instead of focus-cycling ---
+
+        if key == "tab":
+            suggestion = inp._suggestion
+            if suggestion and len(suggestion) > len(inp.value):
+                event.prevent_default()
+                event.stop()
+                inp.value = suggestion
+                inp.cursor_position = len(suggestion)
+                return
+
         value = inp.value
         cursor = inp.cursor_position
 
