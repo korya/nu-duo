@@ -37,7 +37,7 @@ from nu_tui.components.loader import Loader as NuLoader
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Header, Input
+from textual.widgets import Header, Input, Static
 
 from nu_coding_agent.modes.interactive.components.custom_message import CustomMessageWidget
 from nu_coding_agent.modes.interactive.components.message_renderers import (
@@ -59,6 +59,59 @@ if TYPE_CHECKING:
     from nu_coding_agent.core.agent_session import AgentSession
 
 _BASH_TOOL_NAMES = {"bash", "Bash"}
+
+
+class _ThinkingBlockWidget(Static):
+    """Collapsible widget showing the model's thinking/reasoning text."""
+
+    DEFAULT_CSS = """
+    _ThinkingBlockWidget {
+        width: 1fr;
+        height: auto;
+        padding: 0 1;
+        margin: 0 0 0 0;
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self) -> None:
+        super().__init__("")
+        self._chunks: list[str] = []
+        self._collapsed = True
+        self._finalized = False
+        self._update_display()
+
+    def append_delta(self, delta: str) -> None:
+        self._chunks.append(delta)
+        # Show expanded while streaming so the user sees thinking live
+        self._collapsed = False
+        self._update_display()
+
+    def finalize(self) -> None:
+        self._finalized = True
+        # Collapse after streaming finishes
+        self._collapsed = True
+        self._update_display()
+
+    def on_click(self) -> None:
+        if self._finalized:
+            self._collapsed = not self._collapsed
+            self._update_display()
+
+    def _update_display(self) -> None:
+        from rich.text import Text as RichText  # noqa: PLC0415
+
+        text = "".join(self._chunks)
+        t = RichText()
+        if self._collapsed:
+            line_count = text.count("\n") + 1 if text else 0
+            t.append(f"💭 Thinking ({line_count} lines) ", style="dim italic")
+            if self._finalized:
+                t.append("(click to expand)", style="dim")
+        else:
+            t.append("💭 Thinking\n", style="dim italic")
+            t.append(text, style="dim")
+        self.update(t)
 
 
 class _StreamingComponentWidget(ComponentWidget):
@@ -367,6 +420,84 @@ class InteractiveApp(App[None]):
                 inp.value = self._history_stash
             inp.cursor_position = len(inp.value)
             return
+
+        # -- Model cycling (Ctrl+P / Ctrl+Shift+P) -----------------------
+
+        if key == "ctrl+p":
+            event.prevent_default()
+            event.stop()
+            self._cycle_model(direction=1)
+            return
+
+        if key == "ctrl+shift+p":
+            event.prevent_default()
+            event.stop()
+            self._cycle_model(direction=-1)
+            return
+
+        # -- Thinking level cycling (Ctrl+T / Ctrl+Shift+T) ---------------
+
+        if key == "ctrl+t":
+            event.prevent_default()
+            event.stop()
+            self._cycle_thinking_level(direction=1)
+            return
+
+        if key == "ctrl+shift+t":
+            event.prevent_default()
+            event.stop()
+            self._cycle_thinking_level(direction=-1)
+            return
+
+    def _cycle_model(self, direction: int = 1) -> None:
+        """Cycle through available models."""
+        available = self._session.model_registry.get_available_models()
+        if not available:
+            self._add_info("No models available.")
+            return
+
+        current = self._session.model
+        current_id = current.id if current else ""
+
+        # Find current index
+        idx = -1
+        for i, m in enumerate(available):
+            if m.id == current_id:
+                idx = i
+                break
+
+        next_idx = (idx + direction) % len(available)
+        new_model = available[next_idx]
+        self._session.set_model(new_model)
+
+        # Update prompt placeholder and footer
+        inp = self.query_one("#prompt-input", Input)
+        inp.placeholder = f"Message ({new_model.id}) — /help for commands"
+        try:
+            footer = self.query_one(InteractiveFooter)
+            footer.refresh_content()
+        except Exception:
+            pass
+        self._add_info(f"Model: {new_model.provider}/{new_model.id}")
+
+    def _cycle_thinking_level(self, direction: int = 1) -> None:
+        """Cycle through thinking levels."""
+        levels = ["off", "low", "medium", "high"]
+        current = self._session.thinking_level
+        try:
+            idx = levels.index(current)
+        except ValueError:
+            idx = 0
+        next_idx = (idx + direction) % len(levels)
+        new_level = levels[next_idx]
+        self._session.set_thinking_level(new_level)
+
+        try:
+            footer = self.query_one(InteractiveFooter)
+            footer.refresh_content()
+        except Exception:
+            pass
+        self._add_info(f"Thinking: {new_level}")
 
     def on_mount(self) -> None:
         self.sub_title = f"cwd: {self._session.cwd}"
@@ -1028,12 +1159,14 @@ Type `/help` to see all slash commands.
         # Show thinking indicator
         self._show_thinking()
 
-        # Create streaming assistant message widget
-        assistant_widget = _StreamingComponentWidget()
+        # Create streaming widgets
         area = self.query_one("#message-area", VerticalScroll)
+        thinking_widget: _ThinkingBlockWidget | None = None
+        assistant_widget = _StreamingComponentWidget()
         area.mount(assistant_widget)
 
         def listener(event: Any) -> None:
+            nonlocal thinking_widget
             # NOTE: This listener runs inside the async event loop (not a
             # thread) because _run_prompt is ``@work(thread=False)``.  We
             # must NOT use ``call_from_thread`` — that queues callbacks that
@@ -1051,6 +1184,20 @@ Type `/help` to see all slash commands.
                         delta = getattr(inner, "delta", "")
                         if delta:
                             assistant_widget.append_delta(delta)
+                    elif inner_type == "thinking_start":
+                        # Mount thinking block BEFORE the assistant text widget
+                        thinking_widget = _ThinkingBlockWidget()
+                        try:
+                            area.mount(thinking_widget, before=assistant_widget)
+                        except Exception:
+                            area.mount(thinking_widget)
+                    elif inner_type == "thinking_delta":
+                        delta = getattr(inner, "delta", "")
+                        if delta and thinking_widget is not None:
+                            thinking_widget.append_delta(delta)
+                    elif inner_type == "thinking_end":
+                        if thinking_widget is not None:
+                            thinking_widget.finalize()
 
             elif event_type == "message_start":
                 msg = event.get("message")
@@ -1084,11 +1231,35 @@ Type `/help` to see all slash commands.
             assistant_widget.scroll_visible()
 
             messages = self._session.agent.state.messages
+            error_detected = False
             if messages:
                 last = messages[-1]
-                if getattr(last, "stop_reason", None) == "error":
+                stop = getattr(last, "stop_reason", None)
+                if stop == "error":
                     err = getattr(last, "error_message", None) or "unknown error"
-                    self._mount_error(err)
+                    error_detected = True
+
+                    # Auto-retry: if the error looks like a context overflow
+                    # and auto-retry is enabled, compact and re-prompt.
+                    is_overflow = "context" in err.lower() or "token" in err.lower() or "overflow" in err.lower()
+                    if is_overflow and self._session.auto_retry_enabled and self._session.should_compact():
+                        self._add_info(f"Context overflow detected: {err}")
+                        self._add_info("Auto-compacting and retrying...")
+                        try:
+                            await self._session.compact()
+                            # Remove the failed assistant message from agent state
+                            # so the retry doesn't see it
+                            if self._session.agent.state.messages:
+                                self._session.agent.state.messages.pop()
+                            await self._session.agent.continue_run()
+                            # Re-finalize the widget with any new content
+                            assistant_widget.finalize_as_markdown()
+                            assistant_widget.scroll_visible()
+                            error_detected = False
+                        except Exception as retry_exc:
+                            self._mount_error(f"Auto-retry failed: {retry_exc}")
+                    else:
+                        self._mount_error(err)
 
             # Update footer
             try:
@@ -1097,7 +1268,7 @@ Type `/help` to see all slash commands.
             except Exception:
                 pass
 
-            if self._session.should_compact():
+            if not error_detected and self._session.should_compact():
                 self._run_compact()
 
         except KeyboardInterrupt:
