@@ -596,11 +596,7 @@ class AgentSession:
         # itself; the listener catches it and persists it. We don't
         # build the UserMessage manually here because doing so would
         # double-write it into the session.
-        if images:
-            # Image attachments aren't yet wired through Agent.prompt(),
-            # so this is a forward-compat check rather than a feature.
-            raise NotImplementedError("Image attachments are not yet supported by AgentSession.prompt().")
-        await self._agent.prompt(text)
+        await self._agent.prompt(text, images=images)
 
     async def _ensure_extensions_started(self) -> None:
         """Lazily emit ``session_start`` to the runner on the first prompt."""

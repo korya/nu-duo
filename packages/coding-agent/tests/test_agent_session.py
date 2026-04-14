@@ -497,18 +497,19 @@ def test_session_property_returns_none_for_placeholder() -> None:
         session.close()
 
 
-async def test_prompt_with_images_raises_not_implemented(
+async def test_prompt_with_images_passes_through(
     faux_setup: tuple[Agent, SessionManager, ModelRegistry, AuthStorage],
 ) -> None:
+    """Images are now wired through to Agent.prompt() — no longer raises."""
     from nu_ai.types import ImageContent
 
     session = _make_session(faux_setup)
     try:
-        with pytest.raises(NotImplementedError):
-            await session.prompt(
-                "hi",
-                images=[ImageContent(data="aGVsbG8=", mime_type="image/png")],
-            )
+        # Should not raise; the faux provider just ignores the image content
+        await session.prompt(
+            "describe this image",
+            images=[ImageContent(data="aGVsbG8=", mime_type="image/png")],
+        )
     finally:
         session.close()
 

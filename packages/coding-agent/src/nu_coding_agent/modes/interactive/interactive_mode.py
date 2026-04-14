@@ -196,10 +196,16 @@ class InteractiveApp(App[None]):
         ("ctrl+c", "interrupt_or_quit", "Cancel / Exit"),
     ]
 
-    def __init__(self, session: AgentSession, quiet: bool = False) -> None:
+    def __init__(
+        self,
+        session: AgentSession,
+        quiet: bool = False,
+        scoped_models: list[Any] | None = None,
+    ) -> None:
         super().__init__()
         self._session = session
         self._quiet = quiet
+        self._scoped_models: list[Any] = scoped_models or []
         self._working = False
         self._streaming_widget: _StreamingComponentWidget | None = None
         self._thinking_widget: ComponentWidget | None = None
@@ -450,8 +456,8 @@ class InteractiveApp(App[None]):
             return
 
     def _cycle_model(self, direction: int = 1) -> None:
-        """Cycle through available models."""
-        available = self._session.model_registry.get_available_models()
+        """Cycle through available (or scoped) models."""
+        available = self._scoped_models or self._session.model_registry.get_available_models()
         if not available:
             self._add_info("No models available.")
             return
@@ -557,9 +563,16 @@ Available commands:
   /logout          — log out from an OAuth provider
   /new             — start a new session
   /reload          — reload extensions, keybindings, and settings
+  /share           — share session as a GitHub Gist
+  /import <path>   — import a session from a .jsonl file
+  /thinking        — cycle thinking level (off/low/medium/high)
   /debug           — show debug information
   !command         — run a shell command outside the agent loop
   !!command        — run a shell command (excluded from context)
+
+Keyboard shortcuts:
+  Ctrl+P / Ctrl+Shift+P  — cycle model forward / backward
+  Ctrl+T / Ctrl+Shift+T  — cycle thinking level
 """
 
     def _handle_slash_command(self, text: str) -> bool:
@@ -633,6 +646,16 @@ Available commands:
             return True
         if cmd == "/debug":
             self._handle_debug()
+            return True
+        if cmd == "/share":
+            self._run_share()
+            return True
+        if cmd == "/import":
+            path = text[len("/import") :].strip()
+            self._run_import(path)
+            return True
+        if cmd == "/thinking":
+            self._cycle_thinking_level()
             return True
         return False
 
@@ -894,6 +917,76 @@ Type `/help` to see all slash commands.
             ext_names = [getattr(e, "name", str(e)) for e in runner.extensions]
             lines.append(f"Extensions: {', '.join(ext_names) or 'none'}")
         self._add_info("\n".join(lines))
+
+    @work(thread=False)
+    async def _run_share(self) -> None:
+        """``/share`` — export session to a GitHub Gist and show the share URL."""
+        sf = self._session.session_manager.get_session_file()
+        if sf is None:
+            self._mount_error("Cannot share: session is not persisted to disk.")
+            return
+        try:
+            html = await self._session.export_to_html()
+            # Create a gist via gh CLI
+            import subprocess as _sp  # noqa: PLC0415
+            import tempfile  # noqa: PLC0415
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False, encoding="utf-8") as fh:
+                fh.write(html)
+                tmp = fh.name
+            try:
+                import asyncio as _aio  # noqa: PLC0415
+
+                result = await _aio.to_thread(
+                    _sp.run,
+                    ["gh", "gist", "create", "--public", "-f", "session.html", tmp],
+                    capture_output=True, text=True, timeout=30, check=False,
+                )
+                if result.returncode == 0:
+                    gist_url = result.stdout.strip()
+                    from nu_coding_agent.config import get_share_viewer_url  # noqa: PLC0415
+
+                    gist_id = gist_url.rsplit("/", 1)[-1] if "/" in gist_url else gist_url
+                    viewer_url = get_share_viewer_url(gist_id)
+                    self._add_info(f"Shared! View at: {viewer_url}\nGist: {gist_url}")
+                else:
+                    self._mount_error(f"Failed to create gist: {result.stderr.strip()}")
+            finally:
+                import os  # noqa: PLC0415
+
+                os.unlink(tmp)
+        except Exception as exc:
+            self._mount_error(f"Share failed: {exc}")
+
+    def _run_import(self, path: str) -> None:
+        """``/import <path>`` — import a session from a .jsonl file."""
+        if not path:
+            self._add_info("Usage: /import <session.jsonl>")
+            return
+        import os  # noqa: PLC0415
+
+        resolved = os.path.expanduser(path)
+        if not os.path.isfile(resolved):
+            self._mount_error(f"File not found: {resolved}")
+            return
+        try:
+            from nu_coding_agent.core.session_manager import SessionManager  # noqa: PLC0415
+
+            sm = SessionManager(session_dir=os.path.dirname(resolved), cwd=self._session.cwd)
+            sm.load(resolved)
+            self._session.set_session_manager(sm)
+            # Reload the chat view
+            area = self.query_one("#message-area", VerticalScroll)
+            area.remove_children()
+            self._restore_history()
+            self._add_info(f"Imported session from {resolved}")
+            try:
+                footer = self.query_one(InteractiveFooter)
+                footer.refresh_content()
+            except Exception:
+                pass
+        except Exception as exc:
+            self._mount_error(f"Import failed: {exc}")
 
     @work(thread=False)
     async def _run_fork(self, entry_id: str, selected_text: str) -> None:
@@ -1609,12 +1702,17 @@ def _extract_content_list(result: Any) -> list[Any]:
     return []
 
 
-async def run_interactive_mode(session: AgentSession, *, quiet: bool = False) -> int:
+async def run_interactive_mode(
+    session: AgentSession,
+    *,
+    quiet: bool = False,
+    scoped_models: list[Any] | None = None,
+) -> int:
     """Launch the interactive REPL.
 
     Returns an exit code (0 for clean exit, 1 for error).
     """
-    app = InteractiveApp(session, quiet=quiet)
+    app = InteractiveApp(session, quiet=quiet, scoped_models=scoped_models)
     try:
         await app.run_async()
     except Exception as exc:
