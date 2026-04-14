@@ -132,7 +132,7 @@ class AgentSession:
 
         # Session-level state (matches upstream properties)
         self._session_name: str | None = None
-        self._thinking_level: str = "off"
+        self._thinking_level: str = getattr(config.agent.state, "thinking_level", "off")
         self._steering_mode: str = "all"
         self._follow_up_mode: str = "all"
         self._auto_compaction_enabled: bool = True
@@ -299,8 +299,9 @@ class AgentSession:
         return self._thinking_level
 
     def set_thinking_level(self, level: str) -> None:
-        """Set the thinking level."""
+        """Set the thinking level on both the session and the agent state."""
         self._thinking_level = level
+        self._agent.state.thinking_level = level  # type: ignore[assignment]
 
     def cycle_thinking_level(self) -> str | None:
         """Cycle through available thinking levels. Returns new level or None."""
@@ -310,7 +311,7 @@ class AgentSession:
         except ValueError:
             idx = 0
         next_idx = (idx + 1) % len(levels)
-        self._thinking_level = levels[next_idx]
+        self.set_thinking_level(levels[next_idx])
         return self._thinking_level
 
     # ------------------------------------------------------------------
