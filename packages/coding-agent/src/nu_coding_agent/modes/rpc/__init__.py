@@ -13,6 +13,7 @@ Protocol:
 from __future__ import annotations
 
 from nu_coding_agent.modes.rpc.jsonl import attach_jsonl_line_reader, serialize_json_line
+from nu_coding_agent.modes.rpc.rpc_client import ModelInfo, RpcClient, RpcClientError, RpcClientOptions
 from nu_coding_agent.modes.rpc.rpc_mode import run_rpc_mode
 from nu_coding_agent.modes.rpc.rpc_types import (
     RpcCommand,
@@ -24,6 +25,10 @@ from nu_coding_agent.modes.rpc.rpc_types import (
 )
 
 __all__ = [
+    "ModelInfo",
+    "RpcClient",
+    "RpcClientError",
+    "RpcClientOptions",
     "RpcCommand",
     "RpcExtensionUIRequest",
     "RpcExtensionUIResponse",
