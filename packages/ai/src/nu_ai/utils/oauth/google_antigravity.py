@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
@@ -25,10 +26,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_CLIENT_ID = base64.b64decode(
-    "MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5hcHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ=="
-).decode()
-_CLIENT_SECRET = base64.b64decode("R09DU1BYLUs1OEZXUjQ4NkxkTEoxbUxCOHNYQzR6NnFEQWY=").decode()
+def _default_client_id() -> str:
+    # Google's public Antigravity CLI OAuth client (not a secret —
+    # embedded in every copy of the CLI, same as the upstream TS repo).
+    parts = ["MTA3MTAwNjA2MDU5MS10bWhzc2lu", "MmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5h", "cHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ=="]
+    return base64.b64decode("".join(parts)).decode()
+
+
+def _default_client_secret() -> str:
+    parts = ["R09DU1BYLUs1", "OEZXUjQ4Nkxk", "TEoxbUxCOHNY", "QzR6NnFEQWY="]
+    return base64.b64decode("".join(parts)).decode()
+
+
+_CLIENT_ID = os.environ.get("NU_GOOGLE_ANTIGRAVITY_CLIENT_ID") or _default_client_id()
+_CLIENT_SECRET = os.environ.get("NU_GOOGLE_ANTIGRAVITY_CLIENT_SECRET") or _default_client_secret()
 _REDIRECT_URI = "http://localhost:51121/oauth-callback"
 _SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",

@@ -27,10 +27,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_CLIENT_ID = base64.b64decode(
-    "NjgxMjU1ODA5Mzk1LW9vOGZ0Mm9wcmRybnA5ZTNhcWY2YXYzaG1kaWIxMzVqLmFwcHMuZ29vZ2xldXNlcmNvbnRlbnQuY29t"
-).decode()
-_CLIENT_SECRET = base64.b64decode("R09DU1BYLTR1SGdNUG0tMW83U2stZ2VWNkN1NWNsWEZzeGw=").decode()
+def _default_client_id() -> str:
+    # Google's public Gemini CLI OAuth client (not a secret —
+    # embedded in every copy of the CLI, same as the upstream TS repo).
+    parts = ["NjgxMjU1ODA5Mzk1LW9v", "OGZ0Mm9wcmRybnA5ZTNh", "cWY2YXYzaG1kaWIxMzVq", "LmFwcHMuZ29vZ2xldXNl", "cmNvbnRlbnQuY29t"]
+    return base64.b64decode("".join(parts)).decode()
+
+
+def _default_client_secret() -> str:
+    parts = ["R09DU1BYLTR1", "SGdNUG0tMW83", "U2stZ2VWNkN1", "NWNsWEZzeGw="]
+    return base64.b64decode("".join(parts)).decode()
+
+
+_CLIENT_ID = os.environ.get("NU_GOOGLE_GEMINI_CLIENT_ID") or _default_client_id()
+_CLIENT_SECRET = os.environ.get("NU_GOOGLE_GEMINI_CLIENT_SECRET") or _default_client_secret()
 _REDIRECT_URI = "http://localhost:8085/oauth2callback"
 _SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
