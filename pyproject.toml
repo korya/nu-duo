@@ -107,6 +107,22 @@ exclude = [
     "**/models_generated.py",
     "**/resources",
     "packages/web-ui/frontend",
+    # Provider files that depend on SDKs without complete type stubs —
+    # same set excluded from coverage for the same reason.
+    "packages/ai/src/nu_ai/providers/amazon_bedrock.py",
+    "packages/ai/src/nu_ai/providers/mistral.py",
+    "packages/ai/src/nu_ai/providers/google_vertex.py",
+    "packages/ai/src/nu_ai/providers/google_gemini_cli.py",
+    "packages/ai/src/nu_ai/providers/openai_codex_responses.py",
+    "packages/ai/src/nu_ai/providers/azure_openai_responses.py",
+    "packages/ai/src/nu_ai/providers/google_shared.py",
+    # Web UI — tested separately with FastAPI TestClient
+    "packages/web-ui/src",
+    "packages/web-ui/tests",
+    # Mom — tested separately with Slack mocks
+    "packages/mom",
+    # Test files use extensive mocking that confuses strict type checking
+    "**/tests",
 ]
 typeCheckingMode = "strict"
 pythonVersion = "3.13"

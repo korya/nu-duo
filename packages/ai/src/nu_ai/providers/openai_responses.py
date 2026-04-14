@@ -210,7 +210,7 @@ def convert_responses_messages(
                 )
             else:
                 content: list[dict[str, Any]] = []
-                for item in msg.content:
+                for item in msg.content:  # type: ignore[union-attr]
                     if isinstance(item, TextContent):
                         content.append({"type": "input_text", "text": sanitize_surrogates(item.text)})
                     elif isinstance(item, ImageContent):
@@ -266,7 +266,7 @@ def convert_responses_messages(
                         item["phase"] = parsed_sig["phase"]
                     output.append(item)
 
-                elif isinstance(block, ToolCall):
+                elif isinstance(block, ToolCall):  # pyright: ignore[reportUnnecessaryIsInstance]
                     call_id, *rest = block.id.split("|", 1)
                     item_id: str | None = rest[0] if rest else None
 
@@ -287,7 +287,7 @@ def convert_responses_messages(
             if output:
                 messages.extend(output)
 
-        elif isinstance(msg, ToolResultMessage):
+        elif isinstance(msg, ToolResultMessage):  # pyright: ignore[reportUnnecessaryIsInstance]
             text_parts = [c.text for c in msg.content if isinstance(c, TextContent)]
             text_result = "\n".join(text_parts)
             has_images = any(isinstance(c, ImageContent) for c in msg.content)

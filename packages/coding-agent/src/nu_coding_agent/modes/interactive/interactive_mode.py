@@ -527,7 +527,7 @@ class InteractiveApp(App[None]):
             if widget is not None:
                 area.mount(widget)
             # Populate input history from user messages
-            if isinstance(entry, dict) and entry.get("type") == "message":
+            if entry.get("type") == "message":
                 msg = entry.get("message")
                 if msg is not None:
                     role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
@@ -975,8 +975,12 @@ Type `/help` to see all slash commands.
         try:
             from nu_coding_agent.core.session_manager import SessionManager  # noqa: PLC0415
 
-            sm = SessionManager(session_dir=os.path.dirname(resolved), cwd=self._session.cwd)
-            sm.load(resolved)
+            sm = SessionManager(
+                cwd=self._session.cwd,
+                session_dir=os.path.dirname(resolved),
+                session_file=resolved,
+                persist=True,
+            )
             self._session.set_session_manager(sm)
             # Reload the chat view
             area = self.query_one("#message-area", VerticalScroll)
