@@ -181,6 +181,7 @@ omit = [
 disable_warnings = ["module-not-imported", "no-data-collected"]
 
 [tool.coverage.report]
+fail_under = 93
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

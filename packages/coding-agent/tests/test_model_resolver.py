@@ -436,3 +436,252 @@ def test_is_alias_with_latest_suffix() -> None:
     assert _is_alias("claude-sonnet-4-5") is True
     assert _is_alias("claude-sonnet-4-5-latest") is True
     assert _is_alias("claude-sonnet-4-5-20250929") is False
+
+
+# ---------------------------------------------------------------------------
+# Coverage: ambiguous canonical matches (line 133)
+# ---------------------------------------------------------------------------
+
+
+def test_exact_match_ambiguous_canonical(registry_with_keys: ModelRegistry) -> None:
+    """When multiple models have the same canonical key, return None."""
+    from nu_ai.types import Model
+
+    models = registry_with_keys.get_all()
+    # Duplicate the first model so canonical lookup is ambiguous
+    dup = models[0].model_copy(deep=True)
+    assert find_exact_model_reference_match(f"{dup.provider}/{dup.id}", [models[0], dup]) is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: provider/id match where provider_matches > 1 (line 148)
+# ---------------------------------------------------------------------------
+
+
+def test_exact_match_ambiguous_provider_slash_id(registry_with_keys: ModelRegistry) -> None:
+    models = registry_with_keys.get_all()
+    # Create two models with same provider and id
+    m1 = models[0].model_copy(deep=True)
+    m2 = models[0].model_copy(deep=True)
+    # Use a non-canonical reference so canonical_matches == 0, fall through to slash logic
+    ref = f" {m1.provider} / {m1.id} "
+    result = find_exact_model_reference_match(ref, [m1, m2])
+    # Ambiguous provider match → None
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: provider/id single match (line 146)
+# ---------------------------------------------------------------------------
+
+
+def test_exact_match_provider_slash_id_single(registry_with_keys: ModelRegistry) -> None:
+    models = registry_with_keys.get_all()
+    target = models[0]
+    # Use whitespace so canonical lookup misses but slash-split hits
+    ref = f" {target.provider} / {target.id} "
+    result = find_exact_model_reference_match(ref, [target])
+    assert result is target
+
+
+# ---------------------------------------------------------------------------
+# Coverage: _try_match_model dated fallback (lines 171-172)
+# ---------------------------------------------------------------------------
+
+
+def test_try_match_model_dated_fallback(registry_with_keys: ModelRegistry) -> None:
+    """When no aliases match, fall back to dated model (sorted by id desc)."""
+    from nu_coding_agent.core.model_resolver import _try_match_model  # pyright: ignore[reportPrivateUsage]
+
+    models = registry_with_keys.get_all()
+    # Create dated models only (no alias)
+    m1 = models[0].model_copy(deep=True)
+    m1.id = "test-model-20250101"
+    m1.name = "test-model-20250101"
+    m2 = models[0].model_copy(deep=True)
+    m2.id = "test-model-20250201"
+    m2.name = "test-model-20250201"
+    result = _try_match_model("test-model", [m1, m2])
+    assert result is not None
+    # Should pick the one that sorts higher (m2)
+    assert result.id == "test-model-20250201"
+
+
+# ---------------------------------------------------------------------------
+# Coverage: parse_model_pattern → recursive, model found but warning (line 210)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_pattern_thinking_level_on_recursive_warning(
+    registry_with_keys: ModelRegistry,
+) -> None:
+    """When recursive parse finds a model with a warning, thinking_level is None."""
+    target = next(m for m in registry_with_keys.get_all() if m.provider == "anthropic")
+    # pattern: model:bogus:high → first try "model:bogus" with suffix "high"
+    # recursive call on "model:bogus" → finds model with warning about "bogus"
+    # since result.warning is set, thinking_level should be None
+    result = parse_model_pattern(f"{target.id}:bogus:high", registry_with_keys.get_all())
+    assert result.model is not None
+    assert result.warning is not None
+    assert result.thinking_level is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: parse_model_pattern → recursive returns no model (line 210, 227)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_pattern_recursive_no_model_returns_empty() -> None:
+    """When the recursive call to parse_model_pattern returns no model."""
+    result = parse_model_pattern("nonexistent:high", [])
+    assert result.model is None
+
+
+def test_parse_pattern_recursive_invalid_suffix_no_model() -> None:
+    """Recursive fallback path (line 227): invalid suffix, recursive prefix has no model."""
+    result = parse_model_pattern("nonexistent:bogus", [])
+    assert result.model is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: resolve_model_scope with warning from parse_model_pattern (line 295)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_scope_pattern_with_warning(registry_with_keys: ModelRegistry) -> None:
+    target = next(m for m in registry_with_keys.get_all() if m.provider == "anthropic")
+    scoped, warnings = resolve_model_scope([f"{target.id}:bogus"], registry_with_keys)
+    assert len(scoped) == 1
+    assert any("bogus" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# Coverage: resolve_cli_model no available_models (line 322)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cli_model_no_models(empty_registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch) -> None:
+    """When get_all() returns empty list, error about no models available."""
+    monkeypatch.setattr(empty_registry, "get_all", lambda: [])
+    result = resolve_cli_model(cli_provider=None, cli_model="anything", model_registry=empty_registry)
+    assert result.error is not None
+    assert "No models available" in result.error
+
+
+# ---------------------------------------------------------------------------
+# Coverage: resolve_cli_model with exact match (line 354)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cli_model_exact_id_match(registry_with_keys: ModelRegistry) -> None:
+    target = next(m for m in registry_with_keys.get_all() if m.provider == "anthropic")
+    result = resolve_cli_model(cli_provider=None, cli_model=target.id, model_registry=registry_with_keys)
+    assert result.model is not None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: resolve_cli_model inferred provider fallback path (lines 376-389)
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_cli_model_inferred_provider_full_fallback(
+    registry_with_keys: ModelRegistry,
+) -> None:
+    """When inferred provider strict fails, the whole cli_model is re-parsed."""
+    models = registry_with_keys.get_all()
+    # Use provider/model where the model part alone doesn't match anything
+    # but the full string does match via parse_model_pattern
+    target = next(m for m in models if m.provider == "anthropic")
+    # Force the inferred provider path: "anthropic/nonexistent"
+    # parse_model_pattern on "nonexistent" in anthropic-only candidates fails
+    # Then we enter the inferred_provider fallback at line 375
+    result = resolve_cli_model(
+        cli_provider=None,
+        cli_model=f"anthropic/{target.id}",
+        model_registry=registry_with_keys,
+    )
+    assert result.model is not None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: _build_fallback_model with no provider models (line 237)
+# ---------------------------------------------------------------------------
+
+
+def test_build_fallback_model_no_provider_models(registry_with_keys: ModelRegistry) -> None:
+    from nu_coding_agent.core.model_resolver import _build_fallback_model  # pyright: ignore[reportPrivateUsage]
+
+    result = _build_fallback_model("nonexistent_provider", "some-id", registry_with_keys.get_all())
+    assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: find_initial_model → first available (lines 473-475)
+# ---------------------------------------------------------------------------
+
+
+def test_find_initial_model_no_default_no_scoped_falls_to_first_available(
+    registry_with_keys: ModelRegistry,
+) -> None:
+    """When no CLI/scoped/default model, picks first available with no DEFAULT_MODEL match."""
+    from unittest.mock import patch
+
+    # Make get_available return models whose id doesn't match any DEFAULT_MODEL_PER_PROVIDER
+    models = registry_with_keys.get_available()
+    for m in models:
+        m.id = "custom-unknown-id"
+
+    with patch.object(registry_with_keys, "get_available", return_value=models):
+        result = find_initial_model(
+            cli_provider=None,
+            cli_model=None,
+            scoped_models=[],
+            is_continuing=False,
+            default_provider=None,
+            default_model_id=None,
+            default_thinking_level=None,
+            model_registry=registry_with_keys,
+        )
+        assert result.model is not None
+        assert result.model.id == "custom-unknown-id"
+
+
+def test_find_initial_model_no_available(empty_registry: ModelRegistry) -> None:
+    """When no models are available at all, returns model=None."""
+    result = find_initial_model(
+        cli_provider=None,
+        cli_model=None,
+        scoped_models=[],
+        is_continuing=False,
+        default_provider=None,
+        default_model_id=None,
+        default_thinking_level=None,
+        model_registry=empty_registry,
+    )
+    assert result.model is None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: restore_model_from_session → no default match, first available (line 525)
+# ---------------------------------------------------------------------------
+
+
+def test_restore_model_no_default_match_picks_first(registry_with_keys: ModelRegistry) -> None:
+    """When no DEFAULT_MODEL_PER_PROVIDER match, picks available_models[0]."""
+    from unittest.mock import patch
+
+    models = registry_with_keys.get_available()
+    for m in models:
+        m.id = "custom-id"
+
+    with patch.object(registry_with_keys, "get_available", return_value=models):
+        with patch.object(registry_with_keys, "find", return_value=None):
+            result = restore_model_from_session(
+                saved_provider="anthropic",
+                saved_model_id="missing",
+                current_model=None,
+                model_registry=registry_with_keys,
+            )
+            assert result.model is not None
+            assert result.model.id == "custom-id"
+            assert result.fallback_message is not None

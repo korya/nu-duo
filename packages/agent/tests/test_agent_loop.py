@@ -630,6 +630,326 @@ class TestAgentLoopContinue:
 
 
 # ---------------------------------------------------------------------------
+# run_agent_loop_continue validation (imperative driver)
+# ---------------------------------------------------------------------------
+
+
+class TestRunAgentLoopContinueValidation:
+    async def test_rejects_empty_context(self) -> None:
+        with pytest.raises(ValueError, match="no messages"):
+            await run_agent_loop_continue(
+                context=AgentContext(),
+                config=AgentLoopConfig(
+                    model=model_dummy(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                emit=_noop_emit,
+            )
+
+    async def test_rejects_assistant_last(self) -> None:
+        msg = AssistantMessage(
+            content=[TextContent(text="x")],
+            api="faux",
+            provider="faux",
+            model="m",
+            usage=Usage(
+                input=0,
+                output=0,
+                cache_read=0,
+                cache_write=0,
+                total_tokens=0,
+                cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+            ),
+            stop_reason="stop",
+            timestamp=1,
+        )
+        with pytest.raises(ValueError, match="assistant"):
+            await run_agent_loop_continue(
+                context=AgentContext(messages=[msg]),
+                config=AgentLoopConfig(
+                    model=model_dummy(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                emit=_noop_emit,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Abort signal mid-turn
+# ---------------------------------------------------------------------------
+
+
+class TestAbortSignal:
+    async def test_aborted_assistant_stops_loop(self) -> None:
+        registration = register_faux_provider()
+        try:
+            registration.set_responses(
+                [
+                    faux_assistant_message(
+                        "partial",
+                        stop_reason="aborted",
+                        error_message="cancelled",
+                    ),
+                ]
+            )
+            events: list[AgentEvent] = []
+
+            async def emit(event: AgentEvent) -> None:
+                events.append(event)
+
+            messages = await run_agent_loop(
+                prompts=[UserMessage(content="hi", timestamp=1)],
+                context=AgentContext(),
+                config=AgentLoopConfig(
+                    model=registration.get_model(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                emit=emit,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+            assert len(messages) == 2
+            assert messages[1].stop_reason == "aborted"
+            types = [e["type"] for e in events]
+            assert "agent_end" in types
+        finally:
+            registration.unregister()
+
+
+# ---------------------------------------------------------------------------
+# Tool with prepare_arguments
+# ---------------------------------------------------------------------------
+
+
+class TestPrepareArguments:
+    async def test_prepare_arguments_modifies_args(self) -> None:
+        """Cover _prepare_tool_call_arguments with a non-None prepare_arguments."""
+        registration = register_faux_provider()
+        try:
+            registration.set_responses(
+                [
+                    faux_assistant_message(
+                        [faux_tool_call("bash", {"cmd": "ls"}, id_="c1")],
+                        stop_reason="toolUse",
+                    ),
+                    faux_assistant_message("done"),
+                ]
+            )
+
+            def prepare_arguments(args: dict[str, Any]) -> dict[str, Any]:
+                return {**args, "extra": "injected"}
+
+            tool = _bash_tool()
+            tool.prepare_arguments = prepare_arguments
+
+            messages = await run_agent_loop(
+                prompts=[UserMessage(content="hi", timestamp=1)],
+                context=AgentContext(tools=[tool]),
+                config=AgentLoopConfig(
+                    model=registration.get_model(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                emit=_noop_emit,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+            tool_result = messages[2]
+            assert isinstance(tool_result, ToolResultMessage)
+            assert tool_result.is_error is False
+        finally:
+            registration.unregister()
+
+
+# ---------------------------------------------------------------------------
+# Tool execution with on_update callback
+# ---------------------------------------------------------------------------
+
+
+class TestToolExecutionOnUpdate:
+    async def test_on_update_emits_tool_execution_update(self) -> None:
+        """Cover lines 692-706 and 715-716: on_update + gather."""
+        registration = register_faux_provider()
+        try:
+            registration.set_responses(
+                [
+                    faux_assistant_message(
+                        [faux_tool_call("bash", {"cmd": "ls"}, id_="c1")],
+                        stop_reason="toolUse",
+                    ),
+                    faux_assistant_message("done"),
+                ]
+            )
+
+            async def execute_with_updates(
+                tool_call_id: str,
+                params: dict[str, Any],
+                signal: Any = None,
+                on_update: Any = None,
+            ) -> AgentToolResult[dict[str, Any]]:
+                if on_update:
+                    on_update(AgentToolResult(
+                        content=[TextContent(text="partial")],
+                        details={},
+                    ))
+                return AgentToolResult(
+                    content=[TextContent(text="final")],
+                    details={},
+                )
+
+            tool = _bash_tool()
+            tool.execute = execute_with_updates
+
+            events: list[AgentEvent] = []
+
+            async def emit(event: AgentEvent) -> None:
+                events.append(event)
+
+            messages = await run_agent_loop(
+                prompts=[UserMessage(content="hi", timestamp=1)],
+                context=AgentContext(tools=[tool]),
+                config=AgentLoopConfig(
+                    model=registration.get_model(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                emit=emit,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+            types = [e["type"] for e in events]
+            assert "tool_execution_update" in types
+        finally:
+            registration.unregister()
+
+    async def test_exception_with_pending_updates(self) -> None:
+        """Cover lines 718-720: exception path with pending update emits."""
+        registration = register_faux_provider()
+        try:
+            registration.set_responses(
+                [
+                    faux_assistant_message(
+                        [faux_tool_call("bash", {"cmd": "ls"}, id_="c1")],
+                        stop_reason="toolUse",
+                    ),
+                    faux_assistant_message("recovered"),
+                ]
+            )
+
+            async def execute_with_updates_then_fail(
+                tool_call_id: str,
+                params: dict[str, Any],
+                signal: Any = None,
+                on_update: Any = None,
+            ) -> AgentToolResult[dict[str, Any]]:
+                if on_update:
+                    on_update(AgentToolResult(
+                        content=[TextContent(text="partial")],
+                        details={},
+                    ))
+                raise RuntimeError("boom after update")
+
+            tool = _bash_tool()
+            tool.execute = execute_with_updates_then_fail
+
+            events: list[AgentEvent] = []
+
+            async def emit(event: AgentEvent) -> None:
+                events.append(event)
+
+            messages = await run_agent_loop(
+                prompts=[UserMessage(content="hi", timestamp=1)],
+                context=AgentContext(tools=[tool]),
+                config=AgentLoopConfig(
+                    model=registration.get_model(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                emit=emit,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+            types = [e["type"] for e in events]
+            assert "tool_execution_update" in types
+            assert "tool_execution_end" in types
+            # Tool result should be an error
+            tool_result = [m for m in messages if isinstance(m, ToolResultMessage)][0]
+            assert tool_result.is_error is True
+            assert "boom after update" in tool_result.content[0].text
+        finally:
+            registration.unregister()
+
+
+# ---------------------------------------------------------------------------
+# Sync emit (non-awaitable callback)
+# ---------------------------------------------------------------------------
+
+
+class TestSyncEmit:
+    async def test_sync_emit_callback(self) -> None:
+        """Cover the non-awaitable branch of _emit (line 817)."""
+        registration = register_faux_provider()
+        try:
+            registration.set_responses([faux_assistant_message("hi")])
+
+            events: list[AgentEvent] = []
+
+            def sync_emit(event: AgentEvent) -> None:  # note: not async
+                events.append(event)
+
+            messages = await run_agent_loop(
+                prompts=[UserMessage(content="hi", timestamp=1)],
+                context=AgentContext(),
+                config=AgentLoopConfig(
+                    model=registration.get_model(),
+                    convert_to_llm=_convert_to_llm,
+                ),
+                emit=sync_emit,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+            assert len(messages) == 2
+            assert len(events) > 0
+        finally:
+            registration.unregister()
+
+
+# ---------------------------------------------------------------------------
+# Sync get_steering_messages (non-awaitable)
+# ---------------------------------------------------------------------------
+
+
+class TestSyncSteeringMessages:
+    async def test_sync_get_steering_messages(self) -> None:
+        """Cover the non-awaitable branch in _maybe_call_get_messages (line 829)."""
+        registration = register_faux_provider()
+        try:
+            registration.set_responses(
+                [
+                    faux_assistant_message(
+                        [faux_tool_call("bash", {"cmd": "ls"}, id_="c1")],
+                        stop_reason="toolUse",
+                    ),
+                    faux_assistant_message("done"),
+                ]
+            )
+            call_count = 0
+
+            def sync_get_steering() -> list[AgentMessage]:  # not async
+                nonlocal call_count
+                call_count += 1
+                return []
+
+            messages = await run_agent_loop(
+                prompts=[UserMessage(content="go", timestamp=1)],
+                context=AgentContext(tools=[_bash_tool()]),
+                config=AgentLoopConfig(
+                    model=registration.get_model(),
+                    convert_to_llm=_convert_to_llm,
+                    get_steering_messages=sync_get_steering,
+                ),
+                emit=_noop_emit,
+                stream_fn=_make_stream_fn(registration.api),
+            )
+            assert call_count > 0
+            assert len(messages) >= 2
+        finally:
+            registration.unregister()
+
+
+# ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
 

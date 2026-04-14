@@ -216,3 +216,87 @@ async def test_tui_request_render_after_start_calls_widget_refresh() -> None:
         tui.request_render()
         tui.request_render(force=True)
         assert tui.app is not None and tui.app.widget is not None
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests
+# ---------------------------------------------------------------------------
+
+
+async def test_tui_on_key_forwards_to_dispatch() -> None:
+    """on_key in the Textual app calls dispatch_key (lines 127-129)."""
+    tui = TUI()
+    rec = _InputRecorder()
+    tui.add_child(rec)
+    tui.set_focus(rec)
+    async with tui.run_test() as pilot:
+        await pilot.press("a")
+        await pilot.pause()
+        # The key should have been dispatched to the focused component
+        assert len(rec.received) >= 1
+
+
+async def test_tui_start_when_closed_raises() -> None:
+    """start() on a closed TUI raises RuntimeError (lines 283-286)."""
+    tui = TUI()
+    tui.stop()  # closes the TUI
+    import pytest
+
+    with pytest.raises(RuntimeError, match="closed"):
+        await tui.start()
+
+
+def test_tui_stop_idempotent() -> None:
+    """stop() can be called multiple times safely (lines 292-293)."""
+    tui = TUI()
+    tui.stop()
+    tui.stop()  # idempotent, should not raise
+
+
+async def test_tui_run_test_creates_app_on_demand() -> None:
+    """run_test() creates the app if it doesn't exist (lines 310-312)."""
+    tui = TUI()
+    tui.add_child(Text("test"))
+    assert tui.app is None
+    async with tui.run_test():
+        assert tui.app is not None
+
+
+def test_tui_dispatch_key_with_substitution_and_focus() -> None:
+    """Listener substitution passes altered key to focus (line 244->228)."""
+    tui = TUI()
+    rec = _InputRecorder()
+    tui.add_child(rec)
+    tui.set_focus(rec)
+
+    # First listener substitutes, second listener sees substituted key
+    received_by_listener2: list[str] = []
+
+    def listener1(key: str) -> dict[str, Any] | None:
+        if key == "x":
+            return {"data": "Y"}
+        return None
+
+    def listener2(key: str) -> dict[str, Any] | None:
+        received_by_listener2.append(key)
+        return None
+
+    tui.add_input_listener(listener1)
+    tui.add_input_listener(listener2)
+    tui.dispatch_key("x")
+    # listener2 should see substituted "Y"
+    assert received_by_listener2 == ["Y"]
+    # focused component should also see "Y"
+    assert rec.received == ["Y"]
+
+
+def test_tui_request_render_no_widget() -> None:
+    """request_render with app but no widget yet doesn't crash (line 272)."""
+    tui = TUI()
+    # Manually create the app without composing
+    from nu_tui.tui import _TUIApp
+
+    tui._app = _TUIApp(tui)
+    # Widget is None at this point
+    assert tui._app.widget is None
+    tui.request_render()  # should not crash

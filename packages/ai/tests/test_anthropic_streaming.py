@@ -37,6 +37,7 @@ from nu_ai.types import (
     ToolCallDeltaEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
+    ToolResultMessage,
     UserMessage,
 )
 
@@ -525,3 +526,487 @@ class TestStreamAnthropicStopReasonMapping:
         )
         result = await stream.result()
         assert result.stop_reason == expected_pi_reason
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests
+# ---------------------------------------------------------------------------
+
+
+class TestAnthropicPureTransforms:
+    def test_map_stop_reason_all_variants(self) -> None:
+        from nu_ai.providers.anthropic import map_stop_reason
+
+        assert map_stop_reason("end_turn") == "stop"
+        assert map_stop_reason("max_tokens") == "length"
+        assert map_stop_reason("tool_use") == "toolUse"
+        assert map_stop_reason("refusal") == "error"
+        assert map_stop_reason("pause_turn") == "stop"
+        assert map_stop_reason("stop_sequence") == "stop"
+        assert map_stop_reason("sensitive") == "error"
+
+    def test_map_stop_reason_unknown_raises(self) -> None:
+        from nu_ai.providers.anthropic import map_stop_reason
+
+        import pytest
+
+        with pytest.raises(ValueError, match="Unhandled stop reason"):
+            map_stop_reason("totally_unknown")
+
+    def test_supports_adaptive_thinking(self) -> None:
+        from nu_ai.providers.anthropic import supports_adaptive_thinking
+
+        assert supports_adaptive_thinking("claude-opus-4-6") is True
+        assert supports_adaptive_thinking("claude-opus-4.6-latest") is True
+        assert supports_adaptive_thinking("claude-sonnet-4-6") is True
+        assert supports_adaptive_thinking("claude-sonnet-4.6") is True
+        assert supports_adaptive_thinking("claude-sonnet-4-5") is False
+
+    def test_map_thinking_level_to_effort(self) -> None:
+        from nu_ai.providers.anthropic import map_thinking_level_to_effort
+
+        assert map_thinking_level_to_effort("minimal", "claude-sonnet-4-5") == "low"
+        assert map_thinking_level_to_effort("low", "claude-sonnet-4-5") == "low"
+        assert map_thinking_level_to_effort("medium", "claude-sonnet-4-5") == "medium"
+        assert map_thinking_level_to_effort("high", "claude-sonnet-4-5") == "high"
+        # xhigh on opus-4-6 → max
+        assert map_thinking_level_to_effort("xhigh", "claude-opus-4-6") == "max"
+        # xhigh on non-opus → high
+        assert map_thinking_level_to_effort("xhigh", "claude-sonnet-4-5") == "high"
+        # None → high
+        assert map_thinking_level_to_effort(None, "claude-sonnet-4-5") == "high"
+
+    def test_is_oauth_token(self) -> None:
+        from nu_ai.providers.anthropic import is_oauth_token
+
+        assert is_oauth_token("sk-ant-oat-abc123") is True
+        assert is_oauth_token("sk-ant-api-abc123") is False
+
+    def test_normalize_tool_call_id(self) -> None:
+        from nu_ai.providers.anthropic import normalize_tool_call_id
+
+        assert normalize_tool_call_id("valid_id-123") == "valid_id-123"
+        assert normalize_tool_call_id("invalid id!@#") == "invalid_id___"
+        # Long ids get truncated
+        long_id = "a" * 100
+        assert len(normalize_tool_call_id(long_id)) == 64
+
+    def test_to_claude_code_name(self) -> None:
+        from nu_ai.providers.anthropic import to_claude_code_name
+
+        assert to_claude_code_name("read") == "Read"
+        assert to_claude_code_name("bash") == "Bash"
+        assert to_claude_code_name("CustomTool") == "CustomTool"
+
+    def test_from_claude_code_name(self) -> None:
+        from nu_ai.providers.anthropic import from_claude_code_name
+        from nu_ai.types import Tool
+
+        tools = [Tool(name="my_read", description="", parameters={"type": "object", "properties": {}})]
+        assert from_claude_code_name("my_read", tools) == "my_read"
+        assert from_claude_code_name("My_Read", tools) == "my_read"
+        assert from_claude_code_name("unknown", tools) == "unknown"
+        assert from_claude_code_name("Read", None) == "Read"
+
+    def test_merge_headers(self) -> None:
+        from nu_ai.providers.anthropic import merge_headers
+
+        result = merge_headers({"a": "1"}, None, {"b": "2", "a": "3"})
+        assert result == {"a": "3", "b": "2"}
+
+    def test_resolve_cache_retention(self) -> None:
+        from nu_ai.providers.anthropic import resolve_cache_retention
+
+        assert resolve_cache_retention("long") == "long"
+        assert resolve_cache_retention("none") == "none"
+        assert resolve_cache_retention(None) == "short"  # default
+
+    def test_get_cache_control(self) -> None:
+        from nu_ai.providers.anthropic import get_cache_control
+
+        result = get_cache_control("https://api.anthropic.com/v1", "long")
+        assert result["retention"] == "long"
+        assert result["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+        result2 = get_cache_control("https://custom.proxy.com/v1", "long")
+        assert result2["cache_control"] == {"type": "ephemeral"}
+
+        result3 = get_cache_control("https://api.anthropic.com/v1", "none")
+        assert result3["cache_control"] is None
+
+    def test_convert_content_blocks_text_only(self) -> None:
+        from nu_ai.providers.anthropic import convert_content_blocks
+
+        result = convert_content_blocks([TextContent(text="hello"), TextContent(text="world")])
+        assert result == "hello\nworld"
+
+    def test_convert_content_blocks_with_images(self) -> None:
+        from nu_ai.providers.anthropic import convert_content_blocks
+        from nu_ai.types import ImageContent
+
+        result = convert_content_blocks([
+            TextContent(text="look"),
+            ImageContent(mime_type="image/png", data="abc"),
+        ])
+        assert isinstance(result, list)
+        assert result[0] == {"type": "text", "text": "look"}
+        assert result[1]["type"] == "image"
+
+    def test_convert_content_blocks_image_only_adds_placeholder(self) -> None:
+        from nu_ai.providers.anthropic import convert_content_blocks
+        from nu_ai.types import ImageContent
+
+        result = convert_content_blocks([ImageContent(mime_type="image/png", data="abc")])
+        assert isinstance(result, list)
+        assert result[0] == {"type": "text", "text": "(see attached image)"}
+        assert result[1]["type"] == "image"
+
+    def test_convert_tools(self) -> None:
+        from nu_ai.providers.anthropic import convert_tools
+        from nu_ai.types import Tool
+
+        tools = [
+            Tool(
+                name="bash",
+                description="run a command",
+                parameters={
+                    "type": "object",
+                    "properties": {"cmd": {"type": "string"}},
+                    "required": ["cmd"],
+                },
+            )
+        ]
+        result = convert_tools(tools, is_oauth_token=False)
+        assert len(result) == 1
+        assert result[0]["name"] == "bash"
+        assert result[0]["input_schema"]["properties"] == {"cmd": {"type": "string"}}
+
+    def test_convert_tools_oauth(self) -> None:
+        from nu_ai.providers.anthropic import convert_tools
+        from nu_ai.types import Tool
+
+        tools = [Tool(name="bash", description="", parameters={"type": "object", "properties": {}})]
+        result = convert_tools(tools, is_oauth_token=True)
+        assert result[0]["name"] == "Bash"  # canonical Claude Code name
+
+
+class TestBuildParamsAnthropic:
+    def test_basic_params(self) -> None:
+        from nu_ai.providers.anthropic import build_params
+
+        params = build_params(
+            _model(),
+            _context("hello"),
+            is_oauth_token=False,
+            options=AnthropicOptions(thinking_enabled=False),
+        )
+        assert params["model"] == "claude-sonnet-4-5"
+        assert params["stream"] is True
+        assert params["thinking"] == {"type": "disabled"}
+
+    def test_adaptive_thinking(self) -> None:
+        from nu_ai.providers.anthropic import build_params
+        from nu_ai.types import ModelCost
+
+        m = Model(
+            id="claude-opus-4-6",
+            name="Opus 4.6",
+            api="anthropic-messages",
+            provider="anthropic",
+            base_url="https://api.anthropic.com",
+            reasoning=True,
+            input=["text", "image"],
+            cost=ModelCost(input=15.0, output=75.0, cache_read=1.5, cache_write=18.75),
+            context_window=200_000,
+            max_tokens=64_000,
+        )
+        params = build_params(
+            m,
+            _context(),
+            is_oauth_token=False,
+            options=AnthropicOptions(thinking_enabled=True, effort="high"),
+        )
+        assert params["thinking"] == {"type": "adaptive"}
+        assert params["output_config"] == {"effort": "high"}
+
+    def test_budget_thinking(self) -> None:
+        from nu_ai.providers.anthropic import build_params
+
+        params = build_params(
+            _model(),
+            _context(),
+            is_oauth_token=False,
+            options=AnthropicOptions(thinking_enabled=True, thinking_budget_tokens=8192),
+        )
+        assert params["thinking"] == {"type": "enabled", "budget_tokens": 8192}
+
+    def test_metadata_passthrough(self) -> None:
+        from nu_ai.providers.anthropic import build_params
+
+        params = build_params(
+            _model(),
+            _context(),
+            is_oauth_token=False,
+            options=AnthropicOptions(
+                thinking_enabled=False,
+                metadata={"user_id": "u123"},
+            ),
+        )
+        assert params["metadata"] == {"user_id": "u123"}
+
+    def test_tool_choice_string(self) -> None:
+        from nu_ai.providers.anthropic import build_params
+
+        params = build_params(
+            _model(),
+            _context(),
+            is_oauth_token=False,
+            options=AnthropicOptions(thinking_enabled=False, tool_choice="auto"),
+        )
+        assert params["tool_choice"] == {"type": "auto"}
+
+    def test_tool_choice_dict(self) -> None:
+        from nu_ai.providers.anthropic import build_params
+
+        tc = {"type": "tool", "name": "bash"}
+        params = build_params(
+            _model(),
+            _context(),
+            is_oauth_token=False,
+            options=AnthropicOptions(thinking_enabled=False, tool_choice=tc),
+        )
+        assert params["tool_choice"] == tc
+
+    def test_oauth_system_prompt(self) -> None:
+        from nu_ai.providers.anthropic import CLAUDE_CODE_IDENTITY_PROMPT, build_params
+
+        params = build_params(
+            _model(),
+            Context(messages=[UserMessage(content="hi", timestamp=1)], system_prompt="Be helpful"),
+            is_oauth_token=True,
+            options=AnthropicOptions(thinking_enabled=False),
+        )
+        system = params["system"]
+        assert len(system) == 2
+        assert system[0]["text"] == CLAUDE_CODE_IDENTITY_PROMPT
+        assert system[1]["text"] == "Be helpful"
+
+
+class TestConvertMessagesAnthropic:
+    def test_cache_control_on_last_user_string(self) -> None:
+        from nu_ai.providers.anthropic import convert_messages
+
+        msgs = convert_messages(
+            [UserMessage(content="hello", timestamp=1)],
+            _model(),
+            is_oauth_token=False,
+            cache_control={"type": "ephemeral"},
+        )
+        # Last user message content should be promoted to list with cache_control
+        content = msgs[0]["content"]
+        assert isinstance(content, list)
+        assert content[0].get("cache_control") == {"type": "ephemeral"}
+
+    def test_cache_control_on_last_user_block(self) -> None:
+        from nu_ai.providers.anthropic import convert_messages
+
+        msgs = convert_messages(
+            [
+                UserMessage(
+                    content=[TextContent(text="hi"), TextContent(text="there")],
+                    timestamp=1,
+                ),
+            ],
+            _model(),
+            is_oauth_token=False,
+            cache_control={"type": "ephemeral"},
+        )
+        content = msgs[0]["content"]
+        assert isinstance(content, list)
+        # Last block should have cache_control
+        assert content[-1].get("cache_control") == {"type": "ephemeral"}
+
+    def test_assistant_redacted_thinking(self) -> None:
+        from nu_ai.providers.anthropic import convert_messages
+
+        msgs = convert_messages(
+            [
+                AssistantMessage(
+                    content=[
+                        ThinkingContent(thinking="[Reasoning redacted]", thinking_signature="opaque", redacted=True),
+                        TextContent(text="answer"),
+                    ],
+                    api="anthropic-messages",
+                    provider="anthropic",
+                    model="claude-sonnet-4-5",
+                    usage=_empty_usage(),
+                    stop_reason="stop",
+                    timestamp=1,
+                ),
+            ],
+            _model(),
+            is_oauth_token=False,
+        )
+        blocks = msgs[0]["content"]
+        assert blocks[0]["type"] == "redacted_thinking"
+        assert blocks[0]["data"] == "opaque"
+
+    def test_assistant_thinking_without_signature_becomes_text(self) -> None:
+        from nu_ai.providers.anthropic import convert_messages
+
+        msgs = convert_messages(
+            [
+                AssistantMessage(
+                    content=[
+                        ThinkingContent(thinking="hmm", thinking_signature=None),
+                        TextContent(text="answer"),
+                    ],
+                    api="anthropic-messages",
+                    provider="anthropic",
+                    model="claude-sonnet-4-5",
+                    usage=_empty_usage(),
+                    stop_reason="stop",
+                    timestamp=1,
+                ),
+            ],
+            _model(),
+            is_oauth_token=False,
+        )
+        blocks = msgs[0]["content"]
+        # Missing signature → converted to plain text
+        assert blocks[0]["type"] == "text"
+        assert blocks[0]["text"] == "hmm"
+
+    def test_tool_result_collapsed(self) -> None:
+        from nu_ai.providers.anthropic import convert_messages
+
+        msgs = convert_messages(
+            [
+                AssistantMessage(
+                    content=[
+                        ToolCall(id="t1", name="bash", arguments={}),
+                        ToolCall(id="t2", name="grep", arguments={}),
+                    ],
+                    api="anthropic-messages",
+                    provider="anthropic",
+                    model="claude-sonnet-4-5",
+                    usage=_empty_usage(),
+                    stop_reason="toolUse",
+                    timestamp=1,
+                ),
+                ToolResultMessage(
+                    tool_call_id="t1",
+                    tool_name="bash",
+                    content=[TextContent(text="ok1")],
+                    is_error=False,
+                    timestamp=2,
+                ),
+                ToolResultMessage(
+                    tool_call_id="t2",
+                    tool_name="grep",
+                    content=[TextContent(text="ok2")],
+                    is_error=False,
+                    timestamp=2,
+                ),
+            ],
+            _model(),
+            is_oauth_token=False,
+        )
+        # Consecutive tool results collapsed into one user message
+        user_msg = msgs[1]
+        assert user_msg["role"] == "user"
+        assert len(user_msg["content"]) == 2
+        assert all(b["type"] == "tool_result" for b in user_msg["content"])
+
+
+class TestStreamAnthropicErrorStopReason:
+    async def test_error_stop_reason_raises(self) -> None:
+        """When the final stop_reason maps to error, an ErrorEvent is emitted."""
+        events = [
+            _evt(
+                "message_start",
+                message=SimpleNamespace(
+                    id="msg_e",
+                    usage=SimpleNamespace(
+                        input_tokens=1,
+                        output_tokens=0,
+                        cache_read_input_tokens=0,
+                        cache_creation_input_tokens=0,
+                    ),
+                ),
+            ),
+            _evt("content_block_start", index=0, content_block=SimpleNamespace(type="text", text="")),
+            _evt("content_block_delta", index=0, delta=SimpleNamespace(type="text_delta", text="hi")),
+            _evt("content_block_stop", index=0),
+            _evt(
+                "message_delta",
+                delta=SimpleNamespace(stop_reason="sensitive"),
+                usage=SimpleNamespace(
+                    input_tokens=1,
+                    output_tokens=1,
+                    cache_read_input_tokens=0,
+                    cache_creation_input_tokens=0,
+                ),
+            ),
+            _evt("message_stop"),
+        ]
+        fake = _FakeAnthropic(events)
+        stream = stream_anthropic(
+            _model(),
+            _context(),
+            AnthropicOptions(thinking_enabled=False),
+            client=fake,
+        )
+        all_events = [e async for e in stream]
+        # Should end with error since "sensitive" maps to "error"
+        assert all_events[-1].type == "error"
+        assert isinstance(all_events[-1], ErrorEvent)
+
+    async def test_message_delta_updates_all_usage_fields(self) -> None:
+        """Verify that message_delta properly updates all usage fields."""
+        events = [
+            _evt(
+                "message_start",
+                message=SimpleNamespace(
+                    id="msg_u",
+                    usage=SimpleNamespace(
+                        input_tokens=10,
+                        output_tokens=0,
+                        cache_read_input_tokens=5,
+                        cache_creation_input_tokens=2,
+                    ),
+                ),
+            ),
+            _evt("content_block_start", index=0, content_block=SimpleNamespace(type="text", text="")),
+            _evt("content_block_delta", index=0, delta=SimpleNamespace(type="text_delta", text="hi")),
+            _evt("content_block_stop", index=0),
+            _evt(
+                "message_delta",
+                delta=SimpleNamespace(stop_reason="end_turn"),
+                usage=SimpleNamespace(
+                    input_tokens=10,
+                    output_tokens=3,
+                    cache_read_input_tokens=5,
+                    cache_creation_input_tokens=2,
+                ),
+            ),
+            _evt("message_stop"),
+        ]
+        fake = _FakeAnthropic(events)
+        stream = stream_anthropic(
+            _model(),
+            _context(),
+            AnthropicOptions(thinking_enabled=False),
+            client=fake,
+        )
+        result = await stream.result()
+        assert result.usage.input == 10
+        assert result.usage.output == 3
+        assert result.usage.cache_read == 5
+        assert result.usage.cache_write == 2
+        assert result.usage.total_tokens == 20
+
+
+def _empty_usage():
+    from nu_ai.types import Cost, Usage
+    return Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0))

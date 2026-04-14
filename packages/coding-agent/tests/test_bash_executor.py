@@ -154,3 +154,57 @@ async def test_execute_bash_explicit_operations_override_local() -> None:
     )
     assert received_command == "echo hi"
     assert "intercepted" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Coverage: ensure_temp_file early return (line 117)
+# ---------------------------------------------------------------------------
+
+
+async def test_ensure_temp_file_idempotent(tmp_path: Path) -> None:
+    """When output spills twice, ensure_temp_file only creates one file (line 117)."""
+    from nu_coding_agent.core.tools.truncate import DEFAULT_MAX_BYTES
+
+    # Create output larger than DEFAULT_MAX_BYTES to trigger temp file creation twice
+    chunk_size = DEFAULT_MAX_BYTES + 1000
+    big_output = "x" * chunk_size + "\n"
+
+    ops = _stub_operations(output=big_output)
+    result = await execute_bash_with_operations("ignored", str(tmp_path), ops)
+    # The key assertion: it ran without error, and full_output_path is set
+    assert result.full_output_path is not None
+
+
+# ---------------------------------------------------------------------------
+# Coverage: output_bytes overflow chunk eviction (lines 136-137)
+# ---------------------------------------------------------------------------
+
+
+async def test_chunk_eviction_on_huge_output(tmp_path: Path) -> None:
+    """When output_bytes exceeds max_output_bytes, old chunks are evicted (lines 136-137)."""
+    from nu_coding_agent.core.tools.truncate import DEFAULT_MAX_BYTES
+
+    # We need output > 2 * DEFAULT_MAX_BYTES to trigger chunk eviction
+    # Send multiple chunks through on_data
+    chunk = "y" * (DEFAULT_MAX_BYTES + 100) + "\n"
+
+    async def multi_chunk_exec(
+        *,
+        command: str,
+        cwd: str,
+        on_data: Callable[[bytes], None],
+        timeout: float | None = None,  # noqa: ASYNC109
+        env: dict[str, str] | None = None,
+        abort_event: asyncio.Event | None = None,
+    ) -> int | None:
+        # Send two large chunks to exceed max_output_bytes
+        on_data(chunk.encode("utf-8"))
+        on_data(chunk.encode("utf-8"))
+        on_data(chunk.encode("utf-8"))
+        return 0
+
+    ops = BashOperations(exec=multi_chunk_exec)
+    result = await execute_bash_with_operations("ignored", str(tmp_path), ops)
+    # The output should be truncated (old chunks evicted)
+    assert result.truncated is True
+    assert result.full_output_path is not None

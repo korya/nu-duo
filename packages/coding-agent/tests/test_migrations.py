@@ -378,3 +378,152 @@ class TestRunMigrations:
         ):
             result = run_migrations(cwd=str(tmp_path))
             assert "github" in result.migrated_auth_providers
+
+
+# ---------------------------------------------------------------------------
+# Coverage: migrate_auth_to_auth_json exception paths (lines 69-70, 85-86)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateAuthExceptionPaths:
+    def test_corrupt_oauth_json(self, tmp_path: Path) -> None:
+        """Corrupt oauth.json triggers exception catch on lines 69-70."""
+        (tmp_path / "oauth.json").write_text("not valid json{{{")
+        result = migrate_auth_to_auth_json(str(tmp_path))
+        # No crash, returns empty (corrupt file is swallowed)
+        assert result == []
+
+    def test_corrupt_settings_json(self, tmp_path: Path) -> None:
+        """Corrupt settings.json triggers exception catch on lines 85-86."""
+        (tmp_path / "settings.json").write_text("not valid json{{{")
+        result = migrate_auth_to_auth_json(str(tmp_path))
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Coverage: migrate_sessions exception paths (lines 142-143)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateSessionsException:
+    def test_corrupt_jsonl(self, tmp_path: Path) -> None:
+        """Corrupt first line triggers exception catch on lines 142-143."""
+        (tmp_path / "bad.jsonl").write_text("not json at all{{{")
+        migrate_sessions_from_agent_root(str(tmp_path))
+        # File should remain (not moved)
+        assert (tmp_path / "bad.jsonl").exists()
+
+
+# ---------------------------------------------------------------------------
+# Coverage: _migrate_commands_to_prompts OSError (lines 161-162)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateCommandsToPromptsOSError:
+    def test_rename_oserror(self, tmp_path: Path) -> None:
+        """OSError during rename prints warning (lines 161-162)."""
+        commands_dir = tmp_path / "commands"
+        commands_dir.mkdir()
+        # Create prompts as a file (not dir) so rename fails
+        (tmp_path / "prompts").write_text("blocker")
+        # Remove the blocker, but create a situation where rename would fail
+        (tmp_path / "prompts").unlink()
+        # Actually, let's make commands_dir unreadable so rename fails
+        # Better approach: create prompts dir first - but that's the no-op case.
+        # Instead, just verify the OSError warning path with a mock
+        with patch("nu_coding_agent.migrations.Path.rename", side_effect=OSError("Permission denied")):
+            result = _migrate_commands_to_prompts(tmp_path, "Test")
+            assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Coverage: _check_deprecated_extension_dirs OSError on iterdir (lines 191-192)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDeprecatedExtDirsOSError:
+    def test_tools_iterdir_oserror(self, tmp_path: Path) -> None:
+        """OSError on tools_dir.iterdir() is swallowed (lines 191-192)."""
+        tools_dir = tmp_path / "tools"
+        tools_dir.mkdir()
+        tools_dir.chmod(0o000)
+        try:
+            warnings = _check_deprecated_extension_dirs(tmp_path, "Test")
+            # No crash; may or may not have warnings about tools
+            assert isinstance(warnings, list)
+        finally:
+            tools_dir.chmod(0o755)
+
+
+# ---------------------------------------------------------------------------
+# Coverage: _migrate_keybindings_config_file exception path (lines 234-235)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateKeybindingsException:
+    def test_exception_swallowed(self, tmp_path: Path) -> None:
+        """Exception in keybindings migration is swallowed (lines 234-235)."""
+        from nu_coding_agent.migrations import _migrate_keybindings_config_file
+
+        (tmp_path / "keybindings.json").write_text(json.dumps({"bindings": {}}))
+
+        with (
+            patch("nu_coding_agent.migrations.get_agent_dir", return_value=str(tmp_path)),
+            patch(
+                "nu_coding_agent.core.keybindings.migrate_keybindings_config",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            _migrate_keybindings_config_file()  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Coverage: _migrate_tools_to_bin OSError on rename (lines 265-266)
+# ---------------------------------------------------------------------------
+
+
+class TestMigrateToolsToBinOSError:
+    def test_rename_oserror(self, tmp_path: Path) -> None:
+        """OSError on rename is swallowed (lines 265-266)."""
+        from nu_coding_agent.migrations import _migrate_tools_to_bin
+
+        agent_dir = tmp_path / "agent"
+        tools_dir = agent_dir / "tools"
+        tools_dir.mkdir(parents=True)
+        (tools_dir / "fd").write_text("binary")
+
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        # Make bin_dir read-only so rename fails
+        bin_dir.chmod(0o555)
+        try:
+            with (
+                patch("nu_coding_agent.migrations.get_agent_dir", return_value=str(agent_dir)),
+                patch("nu_coding_agent.migrations.get_bin_dir", return_value=str(bin_dir)),
+            ):
+                _migrate_tools_to_bin()  # should not raise
+        finally:
+            bin_dir.chmod(0o755)
+
+
+# ---------------------------------------------------------------------------
+# Coverage: show_deprecation_warnings with tty (lines 298-310)
+# ---------------------------------------------------------------------------
+
+
+class TestShowDeprecationWarningsTty:
+    @pytest.mark.asyncio
+    async def test_with_tty_stdin(self) -> None:
+        """When stdin is a tty, exercises the termios path (lines 298-310)."""
+        from nu_coding_agent.migrations import show_deprecation_warnings
+        import io
+
+        with (
+            patch("sys.stdin") as mock_stdin,
+            patch("nu_coding_agent.migrations.sys") as mock_sys,
+        ):
+            mock_sys.stdin = mock_stdin
+            mock_sys.stderr = io.StringIO()
+            mock_stdin.isatty.return_value = True
+            mock_stdin.fileno.side_effect = io.UnsupportedOperation("not a real tty")
+            await show_deprecation_warnings(["test warning"])

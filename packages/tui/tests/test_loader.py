@@ -88,3 +88,78 @@ def test_cancellable_loader_renders_like_loader() -> None:
     lines = cl.render(30)
     assert len(lines) == 2
     assert "Thinking..." in lines[1]
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests
+# ---------------------------------------------------------------------------
+
+
+def test_loader_frame_cycling() -> None:
+    """Manual frame cycling changes the displayed spinner character (lines 84-87)."""
+    loader = Loader(message="test")
+    # Frame 0 = ⠋
+    assert "⠋" in loader.render(30)[1]
+    # Manually advance the frame
+    loader._current_frame = 1
+    loader._update_display()
+    assert "⠙" in loader.render(30)[1]
+    loader._current_frame = 2
+    loader._update_display()
+    assert "⠹" in loader.render(30)[1]
+
+
+def test_loader_start_already_started() -> None:
+    """start() when already started or stopped is a no-op (line 58)."""
+    loader = Loader(message="test")
+    loader._stopped = True
+    loader.start()  # no-op because _stopped
+    assert loader._task is None
+
+
+def test_loader_stop_clears_task() -> None:
+    """stop() cancels the task and sets stopped flag (lines 70-71)."""
+    loader = Loader(message="test")
+    loader.stop()
+    assert loader._stopped is True
+    assert loader._task is None
+    # Idempotent
+    loader.stop()
+    assert loader._stopped is True
+
+
+async def test_loader_spin_async() -> None:
+    """start() in an async context creates the animation task (line 61)."""
+    import asyncio
+
+    loader = Loader(message="spinning")
+    loader.start()
+    assert loader._task is not None
+    # Let it run for a couple of ticks
+    await asyncio.sleep(0.2)
+    assert loader._current_frame > 0
+    loader.stop()
+
+
+def test_cancellable_loader_event_property() -> None:
+    """cancelled_event property returns the asyncio.Event (line 109)."""
+    import asyncio
+
+    cl = CancellableLoader(message="test")
+    assert isinstance(cl.cancelled_event, asyncio.Event)
+    assert not cl.cancelled_event.is_set()
+
+
+def test_cancellable_loader_escape_without_callback() -> None:
+    """Escape cancels even without on_abort callback (lines 115-117)."""
+    cl = CancellableLoader(message="test")
+    cl.on_abort = None
+    cl.handle_input("escape")
+    assert cl.cancelled is True
+
+
+def test_cancellable_loader_non_cancel_key_ignored() -> None:
+    """Non-escape keys are ignored by CancellableLoader."""
+    cl = CancellableLoader(message="test")
+    cl.handle_input("a")
+    assert cl.cancelled is False

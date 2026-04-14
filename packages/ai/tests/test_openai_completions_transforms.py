@@ -287,6 +287,45 @@ class TestGetCompat:
         compat = get_compat(model)
         assert compat.supports_store is False
 
+    def test_all_explicit_overrides(self) -> None:
+        model = _model(
+            compat=OpenAICompletionsCompat(
+                supports_store=False,
+                supports_developer_role=False,
+                supports_reasoning_effort=False,
+                reasoning_effort_map={"high": "default"},
+                supports_usage_in_streaming=False,
+                max_tokens_field="max_tokens",
+                requires_tool_result_name=True,
+                requires_assistant_after_tool_result=True,
+                requires_thinking_as_text=True,
+                thinking_format="qwen",
+                zai_tool_stream=True,
+                supports_strict_mode=False,
+            )
+        )
+        compat = get_compat(model)
+        assert compat.supports_store is False
+        assert compat.supports_developer_role is False
+        assert compat.supports_reasoning_effort is False
+        assert compat.reasoning_effort_map == {"high": "default"}
+        assert compat.supports_usage_in_streaming is False
+        assert compat.max_tokens_field == "max_tokens"
+        assert compat.requires_tool_result_name is True
+        assert compat.requires_assistant_after_tool_result is True
+        assert compat.requires_thinking_as_text is True
+        assert compat.thinking_format == "qwen"
+        assert compat.zai_tool_stream is True
+        assert compat.supports_strict_mode is False
+
+    def test_groq_qwen_reasoning_map(self) -> None:
+        compat = detect_compat(_model(
+            model_id="qwen/qwen3-32b",
+            provider="groq",
+            base_url="https://api.groq.com",
+        ))
+        assert compat.reasoning_effort_map.get("high") == "default"
+
 
 # ---------------------------------------------------------------------------
 # convert_tools
@@ -480,3 +519,382 @@ class TestConvertMessages:
         content = params[2]["content"]
         assert isinstance(content, list)
         assert any(c["type"] == "image_url" for c in content)
+
+    def test_user_image_only_on_text_model_drops_message(self) -> None:
+        """User message with only images on text-only model is dropped."""
+        ctx = Context(
+            messages=[
+                UserMessage(
+                    content=[
+                        ImageContent(data="d", mime_type="image/png"),
+                    ],
+                    timestamp=1,
+                )
+            ]
+        )
+        model = _model(inputs=["text"])
+        compat = detect_compat(model)
+        params = convert_messages(model, ctx, compat)
+        assert len(params) == 0
+
+    def test_assistant_thinking_as_text(self) -> None:
+        """When requires_thinking_as_text, thinking blocks become text content."""
+        from nu_ai.providers.openai_completions import _ResolvedCompat
+        from nu_ai.types import ThinkingContent
+
+        compat = _ResolvedCompat(
+            supports_store=True,
+            supports_developer_role=True,
+            supports_reasoning_effort=True,
+            reasoning_effort_map={},
+            supports_usage_in_streaming=True,
+            max_tokens_field="max_completion_tokens",
+            requires_tool_result_name=False,
+            requires_assistant_after_tool_result=False,
+            requires_thinking_as_text=True,
+            thinking_format="openai",
+            zai_tool_stream=False,
+            supports_strict_mode=True,
+        )
+        ctx = Context(
+            messages=[
+                _assistant(
+                    content=[
+                        ThinkingContent(thinking="pondering..."),
+                        TextContent(text="answer"),
+                    ]
+                ),
+            ]
+        )
+        params = convert_messages(_model(), ctx, compat)
+        assert len(params) == 1
+        # Content should be a list with thinking text first
+        content = params[0]["content"]
+        assert isinstance(content, list)
+        assert content[0]["type"] == "text"
+        assert content[0]["text"] == "pondering..."
+
+    def test_assistant_thinking_with_signature(self) -> None:
+        """Thinking blocks with a signature store it on the assistant message."""
+        from nu_ai.types import ThinkingContent
+
+        ctx = Context(
+            messages=[
+                _assistant(
+                    content=[
+                        ThinkingContent(
+                            thinking="deep thought",
+                            thinking_signature="reasoning_content",
+                        ),
+                        TextContent(text="result"),
+                    ]
+                ),
+            ]
+        )
+        compat = detect_compat(_model())
+        params = convert_messages(_model(), ctx, compat)
+        assert len(params) == 1
+        # The signature field name is used as the key
+        assert params[0].get("reasoning_content") == "deep thought"
+
+    def test_assistant_tool_call_with_thought_signature(self) -> None:
+        """Tool calls with thought_signature replay as reasoning_details."""
+        import json
+
+        reasoning_detail = {"type": "reasoning", "encrypted": "abc"}
+        ctx = Context(
+            messages=[
+                _assistant(
+                    content=[
+                        ToolCall(
+                            id="c1",
+                            name="bash",
+                            arguments={"cmd": "ls"},
+                            thought_signature=json.dumps(reasoning_detail),
+                        ),
+                    ],
+                    stop_reason="toolUse",
+                ),
+                ToolResultMessage(
+                    tool_call_id="c1",
+                    tool_name="bash",
+                    content=[TextContent(text="ok")],
+                    is_error=False,
+                    timestamp=1,
+                ),
+            ],
+        )
+        compat = detect_compat(_model())
+        params = convert_messages(_model(), ctx, compat)
+        assistant_msg = params[0]
+        assert "reasoning_details" in assistant_msg
+        assert len(assistant_msg["reasoning_details"]) == 1
+        assert assistant_msg["reasoning_details"][0]["type"] == "reasoning"
+
+    def test_requires_tool_result_name(self) -> None:
+        """When requires_tool_result_name is set, tool result includes name."""
+        from nu_ai.providers.openai_completions import _ResolvedCompat
+
+        compat = _ResolvedCompat(
+            supports_store=True,
+            supports_developer_role=True,
+            supports_reasoning_effort=True,
+            reasoning_effort_map={},
+            supports_usage_in_streaming=True,
+            max_tokens_field="max_completion_tokens",
+            requires_tool_result_name=True,
+            requires_assistant_after_tool_result=False,
+            requires_thinking_as_text=False,
+            thinking_format="openai",
+            zai_tool_stream=False,
+            supports_strict_mode=True,
+        )
+        ctx = Context(
+            messages=[
+                _assistant(
+                    content=[ToolCall(id="c1", name="bash", arguments={})],
+                    stop_reason="toolUse",
+                ),
+                ToolResultMessage(
+                    tool_call_id="c1",
+                    tool_name="bash",
+                    content=[TextContent(text="ok")],
+                    is_error=False,
+                    timestamp=1,
+                ),
+            ],
+        )
+        params = convert_messages(_model(), ctx, compat)
+        tool_msg = next(p for p in params if p["role"] == "tool")
+        assert tool_msg["name"] == "bash"
+
+    def test_requires_assistant_after_tool_result(self) -> None:
+        """Synthetic assistant message inserted between tool result and user."""
+        from nu_ai.providers.openai_completions import _ResolvedCompat
+
+        compat = _ResolvedCompat(
+            supports_store=True,
+            supports_developer_role=True,
+            supports_reasoning_effort=True,
+            reasoning_effort_map={},
+            supports_usage_in_streaming=True,
+            max_tokens_field="max_completion_tokens",
+            requires_tool_result_name=False,
+            requires_assistant_after_tool_result=True,
+            requires_thinking_as_text=False,
+            thinking_format="openai",
+            zai_tool_stream=False,
+            supports_strict_mode=True,
+        )
+        ctx = Context(
+            messages=[
+                _assistant(
+                    content=[ToolCall(id="c1", name="bash", arguments={})],
+                    stop_reason="toolUse",
+                ),
+                ToolResultMessage(
+                    tool_call_id="c1",
+                    tool_name="bash",
+                    content=[TextContent(text="ok")],
+                    is_error=False,
+                    timestamp=1,
+                ),
+                UserMessage(content="thanks", timestamp=2),
+            ],
+        )
+        params = convert_messages(_model(), ctx, compat)
+        # There should be a synthetic assistant between tool and user
+        roles = [p["role"] for p in params]
+        tool_idx = roles.index("tool")
+        # Find next role after tool
+        assert roles[tool_idx + 1] == "assistant"
+        assert params[tool_idx + 1]["content"] == "I have processed the tool results."
+
+
+class TestBuildParamsCompletions:
+    def test_zai_thinking_format(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions
+
+        model = _model(provider="zai", base_url="https://api.z.ai/v1", reasoning=True)
+        ctx = Context(messages=[UserMessage(content="hi", timestamp=1)])
+        opts = OpenAICompletionsOptions(reasoning_effort="high")
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(model, ctx, opts)
+        assert params.get("enable_thinking") is True
+
+    def test_openrouter_thinking_format(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions
+
+        model = _model(
+            provider="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            reasoning=True,
+        )
+        ctx = Context(messages=[UserMessage(content="hi", timestamp=1)])
+        opts = OpenAICompletionsOptions(reasoning_effort="medium")
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(model, ctx, opts)
+        assert "reasoning" in params
+        assert params["reasoning"]["effort"] == "medium"
+
+    def test_openrouter_no_reasoning(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions
+
+        model = _model(
+            provider="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+            reasoning=True,
+        )
+        ctx = Context(messages=[UserMessage(content="hi", timestamp=1)])
+        opts = OpenAICompletionsOptions()
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(model, ctx, opts)
+        assert params.get("reasoning", {}).get("effort") == "none"
+
+    def test_tool_history_without_tools_adds_empty_tools(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions
+
+        ctx = Context(
+            messages=[
+                _assistant(
+                    content=[ToolCall(id="c1", name="bash", arguments={})],
+                    stop_reason="toolUse",
+                ),
+                ToolResultMessage(
+                    tool_call_id="c1",
+                    tool_name="bash",
+                    content=[TextContent(text="ok")],
+                    is_error=False,
+                    timestamp=1,
+                ),
+                UserMessage(content="ok", timestamp=2),
+            ]
+        )
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(_model(), ctx)
+        assert params.get("tools") == []
+
+    def test_zai_tool_stream(self) -> None:
+        from nu_ai.types import OpenAICompletionsCompat, OpenAICompletionsOptions, Tool
+
+        model = _model(
+            compat=OpenAICompletionsCompat(zai_tool_stream=True),
+        )
+        tool = Tool(name="bash", description="run", parameters={"type": "object", "properties": {}})
+        ctx = Context(
+            messages=[UserMessage(content="hi", timestamp=1)],
+            tools=[tool],
+        )
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(model, ctx)
+        assert params.get("tool_stream") is True
+
+    def test_tool_choice_passthrough(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions, Tool
+
+        tool = Tool(name="bash", description="run", parameters={"type": "object", "properties": {}})
+        ctx = Context(
+            messages=[UserMessage(content="hi", timestamp=1)],
+            tools=[tool],
+        )
+        from nu_ai.providers.openai_completions import build_params
+
+        opts = OpenAICompletionsOptions(tool_choice="auto")
+        params = build_params(_model(), ctx, opts)
+        assert params.get("tool_choice") == "auto"
+
+
+class TestBuildParamsQwenFormats:
+    def test_qwen_chat_template(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions
+
+        model = _model(
+            reasoning=True,
+            compat=OpenAICompletionsCompat(thinking_format="qwen-chat-template"),
+        )
+        ctx = Context(messages=[UserMessage(content="hi", timestamp=1)])
+        opts = OpenAICompletionsOptions(reasoning_effort="high")
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(model, ctx, opts)
+        assert params.get("chat_template_kwargs") == {"enable_thinking": True}
+
+    def test_qwen_format(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions
+
+        model = _model(
+            reasoning=True,
+            compat=OpenAICompletionsCompat(thinking_format="qwen"),
+        )
+        ctx = Context(messages=[UserMessage(content="hi", timestamp=1)])
+        opts = OpenAICompletionsOptions(reasoning_effort="high")
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(model, ctx, opts)
+        assert params.get("enable_thinking") is True
+
+    def test_standard_reasoning_effort(self) -> None:
+        from nu_ai.types import OpenAICompletionsOptions
+
+        model = _model(reasoning=True)
+        ctx = Context(messages=[UserMessage(content="hi", timestamp=1)])
+        opts = OpenAICompletionsOptions(reasoning_effort="medium")
+        from nu_ai.providers.openai_completions import build_params
+
+        params = build_params(model, ctx, opts)
+        assert params.get("reasoning_effort") == "medium"
+
+
+class TestConvertMessagesToolImages:
+    def test_tool_result_image_with_requires_assistant(self) -> None:
+        """Images in tool result with requires_assistant_after_tool_result adds synthetic assistant."""
+        from nu_ai.providers.openai_completions import _ResolvedCompat
+
+        compat = _ResolvedCompat(
+            supports_store=True,
+            supports_developer_role=True,
+            supports_reasoning_effort=True,
+            reasoning_effort_map={},
+            supports_usage_in_streaming=True,
+            max_tokens_field="max_completion_tokens",
+            requires_tool_result_name=False,
+            requires_assistant_after_tool_result=True,
+            requires_thinking_as_text=False,
+            thinking_format="openai",
+            zai_tool_stream=False,
+            supports_strict_mode=True,
+        )
+        ctx = Context(
+            messages=[
+                _assistant(
+                    content=[ToolCall(id="c1", name="shot", arguments={})],
+                    stop_reason="toolUse",
+                ),
+                ToolResultMessage(
+                    tool_call_id="c1",
+                    tool_name="shot",
+                    content=[
+                        TextContent(text="captured"),
+                        ImageContent(data="d", mime_type="image/png"),
+                    ],
+                    is_error=False,
+                    timestamp=1,
+                ),
+            ],
+        )
+        params = convert_messages(_model(), ctx, compat)
+        roles = [p["role"] for p in params]
+        # tool, assistant (synthetic), user (with image)
+        assert "assistant" in roles[1:]  # after assistant + tool, there's a synthetic assistant
+
+
+class TestMapStopReasonExtended:
+    def test_network_error(self) -> None:
+        result = map_stop_reason("network_error")
+        assert result["stop_reason"] == "error"
+        assert "network_error" in (result.get("error_message") or "")

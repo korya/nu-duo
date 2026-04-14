@@ -414,3 +414,176 @@ class TestPromptCache:
             assert second.usage.cache_read == 0
         finally:
             registration.unregister()
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests
+# ---------------------------------------------------------------------------
+
+
+class TestStreamSimpleFn:
+    async def test_stream_simple_delegates_to_stream(self) -> None:
+        """``stream_simple`` should behave identically to ``stream``."""
+        registration = register_faux_provider()
+        try:
+            registration.set_responses([faux_assistant_message("simple reply")])
+            provider = get_api_provider(registration.api)
+            assert provider is not None
+            model = registration.get_model()
+
+            stream = provider.stream_simple(model, _ctx())
+            result = await stream.result()
+            assert isinstance(result.content[0], TextContent)
+            assert result.content[0].text == "simple reply"
+        finally:
+            registration.unregister()
+
+
+class TestFactoryExceptionHandled:
+    async def test_callable_step_exception(self) -> None:
+        """When a callable step raises, an error event is emitted."""
+        registration = register_faux_provider()
+        try:
+
+            def bad_factory(
+                context: Context,
+                options: StreamOptions | None,
+                state: _CallState,
+                model: Model,
+                /,
+            ) -> AssistantMessage:
+                raise RuntimeError("factory boom")
+
+            registration.set_responses([bad_factory])
+            provider = get_api_provider(registration.api)
+            assert provider is not None
+            model = registration.get_model()
+
+            stream = provider.stream(model, _ctx())
+            events = [e async for e in stream]
+            assert events[-1].type == "error"
+            result = await stream.result()
+            assert result.stop_reason == "error"
+            assert "factory boom" in (result.error_message or "")
+        finally:
+            registration.unregister()
+
+
+class TestAbortedStopReason:
+    async def test_aborted_response_emits_error(self) -> None:
+        """A response with stop_reason=aborted emits ErrorEvent."""
+        registration = register_faux_provider()
+        try:
+            registration.set_responses(
+                [
+                    faux_assistant_message(
+                        "partial",
+                        stop_reason="aborted",
+                        error_message="cancelled",
+                    ),
+                ]
+            )
+            provider = get_api_provider(registration.api)
+            assert provider is not None
+            model = registration.get_model()
+
+            stream = provider.stream(model, _ctx())
+            events = [e async for e in stream]
+            assert any(isinstance(e, ErrorEvent) for e in events)
+            result = await stream.result()
+            assert result.stop_reason == "aborted"
+        finally:
+            registration.unregister()
+
+
+class TestContentToText:
+    def test_content_to_text_string(self) -> None:
+        from nu_ai.providers.faux import _content_to_text
+
+        assert _content_to_text("hello") == "hello"
+
+    def test_content_to_text_blocks(self) -> None:
+        from nu_ai.providers.faux import _content_to_text
+        from nu_ai.types import ImageContent
+
+        result = _content_to_text([
+            TextContent(text="look"),
+            ImageContent(mime_type="image/png", data="abc"),
+        ])
+        assert "look" in result
+        assert "image/png" in result
+
+    def test_tool_result_to_text(self) -> None:
+        from nu_ai.providers.faux import _tool_result_to_text
+        from nu_ai.types import ImageContent, ToolResultMessage
+
+        msg = ToolResultMessage(
+            tool_call_id="c1",
+            tool_name="shot",
+            content=[
+                TextContent(text="captured"),
+                ImageContent(mime_type="image/png", data="abc"),
+            ],
+            is_error=False,
+            timestamp=1,
+        )
+        result = _tool_result_to_text(msg)
+        assert "shot" in result
+        assert "captured" in result
+        assert "image/png" in result
+
+    def test_message_to_text_assistant(self) -> None:
+        from nu_ai.providers.faux import _message_to_text
+
+        msg = faux_assistant_message([faux_text("hi"), faux_tool_call("bash", {"cmd": "ls"})])
+        result = _message_to_text(msg)
+        assert "hi" in result
+        assert "bash" in result
+
+    def test_serialize_context_with_tools(self) -> None:
+        from nu_ai.providers.faux import _serialize_context
+        from nu_ai.types import Tool
+
+        tool = Tool(name="bash", description="run", parameters={"type": "object", "properties": {}})
+        ctx = Context(
+            system_prompt="sys",
+            messages=[UserMessage(content="hi", timestamp=1)],
+            tools=[tool],
+        )
+        result = _serialize_context(ctx)
+        assert "system:sys" in result
+        assert "tools:" in result
+        assert "bash" in result
+
+
+class TestScheduleChunk:
+    async def test_schedule_chunk_with_rate(self) -> None:
+        """With a positive tokens_per_second, the delay is computed."""
+        from nu_ai.providers.faux import _schedule_chunk
+
+        # Should not raise; just verify it runs
+        await _schedule_chunk("hello", 1000.0)
+
+    async def test_schedule_chunk_zero_rate(self) -> None:
+        from nu_ai.providers.faux import _schedule_chunk
+
+        await _schedule_chunk("hello", 0)
+
+    async def test_schedule_chunk_none_rate(self) -> None:
+        from nu_ai.providers.faux import _schedule_chunk
+
+        await _schedule_chunk("hello", None)
+
+
+class TestSplitString:
+    def test_empty_string(self) -> None:
+        from nu_ai.providers.faux import _split_string_by_token_size
+
+        result = _split_string_by_token_size("", 3, 5)
+        assert result == [""]
+
+    def test_short_string(self) -> None:
+        from nu_ai.providers.faux import _split_string_by_token_size
+
+        result = _split_string_by_token_size("hi", 3, 5)
+        assert "".join(result) == "hi"

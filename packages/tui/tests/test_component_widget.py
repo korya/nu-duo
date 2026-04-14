@@ -119,6 +119,105 @@ def test_component_widget_default_css_has_auto_height() -> None:
     assert "auto" in ComponentWidget.DEFAULT_CSS
 
 
+# ---------------------------------------------------------------------------
+# get_content_height + render (lines 100-119)
+# ---------------------------------------------------------------------------
+
+
+def test_get_content_height_returns_line_count() -> None:
+    """get_content_height() calls component.render and returns len(lines)."""
+    text = Text("line1\nline2\nline3")
+    widget = ComponentWidget(text)
+    # get_content_height expects (container, viewport, width) but only uses width
+    height = widget.get_content_height(None, None, 40)
+    assert height == 3
+
+
+def test_get_content_height_empty_returns_one() -> None:
+    """An empty component returns height=1 (at least one line)."""
+    text = Text("")
+    widget = ComponentWidget(text)
+    height = widget.get_content_height(None, None, 40)
+    assert height == 1
+
+
+def test_get_content_height_caches_lines() -> None:
+    """After get_content_height, _cached_lines is populated."""
+    text = Text("hello")
+    widget = ComponentWidget(text)
+    widget.get_content_height(None, None, 40)
+    assert widget._cached_lines is not None  # pyright: ignore[reportPrivateUsage]
+    assert widget._cached_width == 40  # pyright: ignore[reportPrivateUsage]
+
+
+def test_render_uses_cached_lines() -> None:
+    """render() returns cached lines when width matches."""
+    text = Text("cached test")
+    widget = ComponentWidget(text)
+    # Prime the cache via get_content_height
+    widget.get_content_height(None, None, 40)
+    # Now render() should use the cached lines without calling component.render again
+    from unittest.mock import patch
+
+    with patch.object(text, "render", wraps=text.render) as mock_render:
+        # Set the widget size so render() uses width=40
+        widget._size = (40, 1)  # pyright: ignore[reportAttributeAccessIssue]
+        result = widget.render()
+        # The cache should have been used
+        assert "cached test" in str(result)
+
+
+def test_render_without_cache() -> None:
+    """render() calls component.render when cache is empty."""
+    text = Text("no cache")
+    widget = ComponentWidget(text)
+    # Force a size so render uses it
+    widget._size = (40, 1)  # pyright: ignore[reportAttributeAccessIssue]
+    result = widget.render()
+    assert "no cache" in str(result)
+    assert widget._cached_lines is not None  # pyright: ignore[reportPrivateUsage]
+
+
+def test_on_key_forward_calls_handle_input() -> None:
+    """on_key with forward_keys=True calls component.handle_input."""
+    rec = _KeyRecorder()
+    widget = ComponentWidget(rec, forward_keys=True)
+    # Create a mock key event
+    from unittest.mock import MagicMock
+
+    event = MagicMock()
+    event.key = "a"
+    widget.on_key(event)
+    assert rec.keys == ["a"]
+    event.stop.assert_called_once()
+
+
+def test_on_key_no_forward_does_not_call() -> None:
+    """on_key with forward_keys=False does NOT call component.handle_input."""
+    rec = _KeyRecorder()
+    widget = ComponentWidget(rec, forward_keys=False)
+    from unittest.mock import MagicMock
+
+    event = MagicMock()
+    event.key = "a"
+    widget.on_key(event)
+    assert rec.keys == []
+    event.stop.assert_not_called()
+
+
+def test_set_component_clears_cache_and_replaces() -> None:
+    """set_component replaces the component and clears the cache."""
+    text1 = Text("first")
+    text2 = Text("second")
+    widget = ComponentWidget(text1)
+    # Prime cache
+    widget.get_content_height(None, None, 40)
+    assert widget._cached_lines is not None  # pyright: ignore[reportPrivateUsage]
+    widget.set_component(text2)
+    assert widget.component is text2
+    assert widget._cached_lines is None  # pyright: ignore[reportPrivateUsage]
+
+
 def test_streaming_pattern_text_then_markdown() -> None:
     """Simulates the _StreamingComponentWidget pattern from interactive mode."""
     text = Text("")

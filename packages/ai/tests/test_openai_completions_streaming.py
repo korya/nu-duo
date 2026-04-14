@@ -342,3 +342,226 @@ class TestOllamaIntegration:
         assert isinstance(done, DoneEvent)
         assert isinstance(done.message.content[0], TextContent)
         assert done.message.content[0].text == "hi from llama"
+
+
+# ---------------------------------------------------------------------------
+# Additional coverage tests
+# ---------------------------------------------------------------------------
+
+
+class TestMultipleToolCallsStream:
+    async def test_two_sequential_tool_calls(self) -> None:
+        """Two tool calls with different ids in sequence."""
+        chunks = [
+            _ns(
+                id="chatcmpl-multi",
+                choices=[
+                    _ns(
+                        delta=_ns(
+                            content=None,
+                            tool_calls=[
+                                _ns(id="call_1", function=_ns(name="bash", arguments='{"cmd": "ls"}')),
+                            ],
+                        ),
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            ),
+            _ns(
+                id="chatcmpl-multi",
+                choices=[
+                    _ns(
+                        delta=_ns(
+                            content=None,
+                            tool_calls=[
+                                _ns(id="call_2", function=_ns(name="grep", arguments='{"pattern": "foo"}')),
+                            ],
+                        ),
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            ),
+            _ns(
+                id="chatcmpl-multi",
+                choices=[_ns(delta=_ns(content=None, tool_calls=None), finish_reason="tool_calls")],
+                usage=None,
+            ),
+        ]
+        fake = _FakeAsyncOpenAI(chunks)
+        events = [
+            e async for e in stream_openai_completions(_model(), _ctx(), OpenAICompletionsOptions(), client=fake)
+        ]
+        tool_ends = [e for e in events if isinstance(e, ToolCallEndEvent)]
+        assert len(tool_ends) == 2
+        assert tool_ends[0].tool_call.name == "bash"
+        assert tool_ends[1].tool_call.name == "grep"
+
+        done = events[-1]
+        assert isinstance(done, DoneEvent)
+        assert done.reason == "toolUse"
+
+
+class TestReasoningAlternativeFields:
+    async def test_reasoning_text_field(self) -> None:
+        """The ``reasoning_text`` field (alternative naming) also works."""
+        chunks = [
+            _ns(
+                id="c",
+                choices=[
+                    _ns(
+                        delta=_ns(
+                            content=None,
+                            tool_calls=None,
+                            reasoning_text="step by step...",
+                        ),
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            ),
+            _ns(
+                id="c",
+                choices=[
+                    _ns(
+                        delta=_ns(content="result", tool_calls=None),
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            ),
+            _ns(
+                id="c",
+                choices=[_ns(delta=_ns(content=None, tool_calls=None), finish_reason="stop")],
+                usage=None,
+            ),
+        ]
+        fake = _FakeAsyncOpenAI(chunks)
+        events = [e async for e in stream_openai_completions(_model(), _ctx(), OpenAICompletionsOptions(), client=fake)]
+        types = [e.type for e in events]
+        assert "thinking_start" in types
+        thinking_delta = next(e for e in events if isinstance(e, ThinkingDeltaEvent))
+        assert thinking_delta.delta == "step by step..."
+
+
+class TestReasoningThenToolCall:
+    async def test_reasoning_followed_by_tool_call(self) -> None:
+        """Reasoning content followed by a tool call properly closes the thinking block."""
+        chunks = [
+            _ns(
+                id="c",
+                choices=[
+                    _ns(
+                        delta=_ns(content=None, tool_calls=None, reasoning_content="thinking..."),
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            ),
+            _ns(
+                id="c",
+                choices=[
+                    _ns(
+                        delta=_ns(
+                            content=None,
+                            tool_calls=[_ns(id="call_1", function=_ns(name="bash", arguments='{"cmd": "ls"}'))],
+                        ),
+                        finish_reason=None,
+                    )
+                ],
+                usage=None,
+            ),
+            _ns(
+                id="c",
+                choices=[_ns(delta=_ns(content=None, tool_calls=None), finish_reason="tool_calls")],
+                usage=None,
+            ),
+        ]
+        fake = _FakeAsyncOpenAI(chunks)
+        events = [e async for e in stream_openai_completions(_model(), _ctx(), OpenAICompletionsOptions(), client=fake)]
+        types = [e.type for e in events]
+        assert "thinking_start" in types
+        assert "thinking_end" in types
+        assert "toolcall_start" in types
+        assert "toolcall_end" in types
+
+
+class TestChoiceUsage:
+    async def test_usage_on_choice(self) -> None:
+        """Some providers put usage on the choice instead of the chunk."""
+        chunks = [
+            _ns(
+                id="chatcmpl-cu",
+                choices=[
+                    _ns(
+                        delta=_ns(content="hi", tool_calls=None),
+                        finish_reason=None,
+                        usage=_ns(
+                            prompt_tokens=10,
+                            completion_tokens=2,
+                            prompt_tokens_details=None,
+                            completion_tokens_details=None,
+                        ),
+                    )
+                ],
+                usage=None,
+            ),
+            _ns(
+                id="chatcmpl-cu",
+                choices=[_ns(delta=_ns(content=None, tool_calls=None), finish_reason="stop")],
+                usage=None,
+            ),
+        ]
+        fake = _FakeAsyncOpenAI(chunks)
+        events = [e async for e in stream_openai_completions(_model(), _ctx(), OpenAICompletionsOptions(), client=fake)]
+        done = events[-1]
+        assert isinstance(done, DoneEvent)
+        assert done.message.usage.input == 10
+        assert done.message.usage.output == 2
+
+
+class TestContentFilterStop:
+    async def test_content_filter_becomes_error(self) -> None:
+        chunks = [
+            _ns(
+                id="c",
+                choices=[_ns(delta=_ns(content=None, tool_calls=None), finish_reason="content_filter")],
+                usage=None,
+            ),
+        ]
+        fake = _FakeAsyncOpenAI(chunks)
+        events = [e async for e in stream_openai_completions(_model(), _ctx(), OpenAICompletionsOptions(), client=fake)]
+        err = events[-1]
+        assert isinstance(err, ErrorEvent)
+        assert "content_filter" in (err.error.error_message or "")
+
+
+class TestStreamSimpleCompletions:
+    async def test_stream_simple_maps_reasoning(self) -> None:
+        from nu_ai.providers.openai_completions import stream_simple_openai_completions
+        from nu_ai.types import SimpleStreamOptions
+
+        chunks = [
+            _text_chunk(delta_text="ok"),
+            _text_chunk(finish_reason="stop"),
+            _usage_chunk(prompt=1, completion=1),
+        ]
+        fake = _FakeAsyncOpenAI(chunks)
+        model = Model(
+            id="o1",
+            name="o1",
+            api="openai-completions",
+            provider="openai",
+            base_url="https://api.openai.com/v1",
+            reasoning=True,
+            input=["text"],
+            cost=ModelCost(input=3.0, output=15.0, cache_read=0.3, cache_write=0),
+            context_window=128_000,
+            max_tokens=4096,
+        )
+        opts = SimpleStreamOptions(reasoning="medium")
+        events = [e async for e in stream_simple_openai_completions(model, _ctx(), opts, client=fake)]
+        assert events[-1].type == "done"
+        kwargs = fake.chat.completions.last_kwargs
+        assert kwargs.get("reasoning_effort") == "medium"
