@@ -24,6 +24,7 @@ _ORIENTATION_TAG = 0x0112
 # Low-level byte parsing
 # ---------------------------------------------------------------------------
 
+
 def _has_exif_header(data: bytes, offset: int) -> bool:
     """Return *True* if ``data[offset:offset+6]`` is the ``Exif\\x00\\x00`` header."""
     return data[offset : offset + 6] == b"Exif\x00\x00"
@@ -127,6 +128,7 @@ def _find_webp_tiff_offset(data: bytes) -> int:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def get_exif_orientation(image_bytes: bytes) -> int:
     """Extract the EXIF orientation value (``1``-``8``) from raw image bytes.
 
@@ -143,11 +145,7 @@ def get_exif_orientation(image_bytes: bytes) -> int:
     if image_bytes[0] == 0xFF and image_bytes[1] == 0xD8:
         tiff_offset = _find_jpeg_tiff_offset(image_bytes)
     # WebP: starts with RIFF....WEBP
-    elif (
-        len(image_bytes) >= 12
-        and image_bytes[:4] == b"RIFF"
-        and image_bytes[8:12] == b"WEBP"
-    ):
+    elif len(image_bytes) >= 12 and image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
         tiff_offset = _find_webp_tiff_offset(image_bytes)
 
     if tiff_offset == -1:

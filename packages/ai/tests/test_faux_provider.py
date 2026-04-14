@@ -506,10 +506,12 @@ class TestContentToText:
         from nu_ai.providers.faux import _content_to_text
         from nu_ai.types import ImageContent
 
-        result = _content_to_text([
-            TextContent(text="look"),
-            ImageContent(mime_type="image/png", data="abc"),
-        ])
+        result = _content_to_text(
+            [
+                TextContent(text="look"),
+                ImageContent(mime_type="image/png", data="abc"),
+            ]
+        )
         assert "look" in result
         assert "image/png" in result
 

@@ -80,10 +80,7 @@ def list_models(registry: ModelRegistry, *, search: str | None = None) -> None:
     }
 
     # Calculate column widths.
-    widths = {
-        key: max(len(headers[key]), *(len(r[key]) for r in rows))
-        for key in headers
-    }
+    widths = {key: max(len(headers[key]), *(len(r[key]) for r in rows)) for key in headers}
 
     # Print header.
     header_line = "  ".join(headers[k].ljust(widths[k]) for k in headers)

@@ -95,7 +95,13 @@ def _copy_sync(text: str) -> None:
             if wayland and has_wayland_display:
                 try:
                     # Verify wl-copy exists
-                    subprocess.run(["which", "wl-copy"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=timeout)
+                    subprocess.run(
+                        ["which", "wl-copy"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=True,
+                        timeout=timeout,
+                    )
                     # wl-copy with subprocess.run hangs due to fork behaviour; use Popen
                     proc = subprocess.Popen(
                         ["wl-copy"],

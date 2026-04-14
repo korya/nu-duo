@@ -520,9 +520,7 @@ class ResourceLoader:
 
     def _load_system_prompts(self) -> None:
         # System prompt
-        source = self._system_prompt_source or _discover_prompt_file(
-            self._cwd, self._agent_dir, "SYSTEM.md"
-        )
+        source = self._system_prompt_source or _discover_prompt_file(self._cwd, self._agent_dir, "SYSTEM.md")
         self._system_prompt = _resolve_prompt_input(source)
 
         # Append system prompt

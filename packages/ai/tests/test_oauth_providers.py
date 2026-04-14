@@ -23,10 +23,10 @@ import pytest
 from nu_ai.utils.oauth.callback_server import CallbackResult
 from nu_ai.utils.oauth.types import OAuthCredentials
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_response(status_code: int = 200, json_data: Any = None, text: str = "") -> MagicMock:
     """Create a mock httpx.Response."""
@@ -37,9 +37,7 @@ def _mock_response(status_code: int = 200, json_data: Any = None, text: str = ""
     resp.text = text or json.dumps(json_data or {})
     resp.raise_for_status = MagicMock()
     if status_code >= 400:
-        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
-            "error", request=MagicMock(), response=resp
-        )
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError("error", request=MagicMock(), response=resp)
     return resp
 
 
@@ -136,11 +134,6 @@ class TestLoginAnthropic:
     async def test_callback_success(self) -> None:
         from nu_ai.utils.oauth.anthropic import login_anthropic
 
-        token_data = {
-            "access_token": "at",
-            "refresh_token": "rt",
-            "expires_in": 3600,
-        }
         expected_creds = OAuthCredentials(refresh="rt", access="at", expires=time.time() * 1000 + 3600_000)
 
         on_auth = MagicMock()
@@ -149,7 +142,11 @@ class TestLoginAnthropic:
         with (
             patch("nu_ai.utils.oauth.anthropic.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.anthropic.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.anthropic._exchange_authorization_code", new_callable=AsyncMock, return_value=expected_creds),
+            patch(
+                "nu_ai.utils.oauth.anthropic._exchange_authorization_code",
+                new_callable=AsyncMock,
+                return_value=expected_creds,
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="auth-code", state="verifier"))
             MockServer.return_value = server_inst
@@ -174,7 +171,11 @@ class TestLoginAnthropic:
         with (
             patch("nu_ai.utils.oauth.anthropic.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.anthropic.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.anthropic._exchange_authorization_code", new_callable=AsyncMock, return_value=expected_creds),
+            patch(
+                "nu_ai.utils.oauth.anthropic._exchange_authorization_code",
+                new_callable=AsyncMock,
+                return_value=expected_creds,
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=None)
             MockServer.return_value = server_inst
@@ -233,7 +234,11 @@ class TestLoginAnthropic:
         with (
             patch("nu_ai.utils.oauth.anthropic.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.anthropic.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.anthropic._exchange_authorization_code", new_callable=AsyncMock, return_value=expected_creds),
+            patch(
+                "nu_ai.utils.oauth.anthropic._exchange_authorization_code",
+                new_callable=AsyncMock,
+                return_value=expected_creds,
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=None)
             MockServer.return_value = server_inst
@@ -271,7 +276,11 @@ class TestLoginAnthropic:
         with (
             patch("nu_ai.utils.oauth.anthropic.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.anthropic.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.anthropic._exchange_authorization_code", new_callable=AsyncMock, return_value=expected_creds),
+            patch(
+                "nu_ai.utils.oauth.anthropic._exchange_authorization_code",
+                new_callable=AsyncMock,
+                return_value=expected_creds,
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="c", state="verifier"))
             MockServer.return_value = server_inst
@@ -290,7 +299,9 @@ class TestAnthropicProvider:
         creds = OAuthCredentials(refresh="r", access="a", expires=0)
         new_creds = OAuthCredentials(refresh="nr", access="na", expires=999)
 
-        with patch("nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, return_value=new_creds):
+        with patch(
+            "nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, return_value=new_creds
+        ):
             result = await anthropic_oauth_provider.refresh_token(creds)
         assert result.access == "na"
 
@@ -300,9 +311,7 @@ class TestAnthropicProvider:
 
         expected = OAuthCredentials(refresh="r", access="a", expires=100)
         with patch("nu_ai.utils.oauth.anthropic.login_anthropic", new_callable=AsyncMock, return_value=expected):
-            result = await anthropic_oauth_provider.login(
-                on_auth=MagicMock(), on_prompt=AsyncMock()
-            )
+            result = await anthropic_oauth_provider.login(on_auth=MagicMock(), on_prompt=AsyncMock())
         assert result == expected
 
     def test_modify_models_passthrough(self) -> None:
@@ -343,7 +352,9 @@ class TestRefreshGitHubCopilotToken:
             "expires_at": time.time() + 3600,
         }
 
-        with patch("nu_ai.utils.oauth.github_copilot._fetch_json", new_callable=AsyncMock, return_value=response_data) as mock_fetch:
+        with patch(
+            "nu_ai.utils.oauth.github_copilot._fetch_json", new_callable=AsyncMock, return_value=response_data
+        ) as mock_fetch:
             creds = await refresh_github_copilot_token("gh-token", enterprise_domain="company.ghe.com")
 
         assert creds.extra_data.get("enterpriseUrl") == "company.ghe.com"
@@ -371,13 +382,15 @@ class TestRefreshGitHubCopilotToken:
     async def test_http_error(self) -> None:
         from nu_ai.utils.oauth.github_copilot import refresh_github_copilot_token
 
-        with patch(
-            "nu_ai.utils.oauth.github_copilot._fetch_json",
-            new_callable=AsyncMock,
-            side_effect=httpx.HTTPStatusError("err", request=MagicMock(), response=MagicMock()),
+        with (
+            patch(
+                "nu_ai.utils.oauth.github_copilot._fetch_json",
+                new_callable=AsyncMock,
+                side_effect=httpx.HTTPStatusError("err", request=MagicMock(), response=MagicMock()),
+            ),
+            pytest.raises(httpx.HTTPStatusError),
         ):
-            with pytest.raises(httpx.HTTPStatusError):
-                await refresh_github_copilot_token("t")
+            await refresh_github_copilot_token("t")
 
 
 class TestGitHubDeviceFlow:
@@ -400,7 +413,9 @@ class TestGitHubDeviceFlow:
     async def test_start_device_flow_missing_field(self) -> None:
         from nu_ai.utils.oauth.github_copilot import _start_device_flow
 
-        with patch("nu_ai.utils.oauth.github_copilot._fetch_json", new_callable=AsyncMock, return_value={"device_code": "dc"}):
+        with patch(
+            "nu_ai.utils.oauth.github_copilot._fetch_json", new_callable=AsyncMock, return_value={"device_code": "dc"}
+        ):
             with pytest.raises(ValueError, match="missing"):
                 await _start_device_flow("github.com")
 
@@ -451,7 +466,7 @@ class TestGitHubDeviceFlow:
 
         with patch("nu_ai.utils.oauth.github_copilot._fetch_json", side_effect=mock_fetch):
             with patch("asyncio.sleep", new_callable=AsyncMock):
-                with pytest.raises(RuntimeError, match="Device flow failed.*access_denied.*User denied"):
+                with pytest.raises(RuntimeError, match=r"Device flow failed.*access_denied.*User denied"):
                     await _poll_for_github_access_token("github.com", "dc", 1, 60)
 
     @pytest.mark.asyncio
@@ -501,14 +516,22 @@ class TestLoginGitHubCopilot:
         )
 
         with (
-            patch("nu_ai.utils.oauth.github_copilot._start_device_flow", new_callable=AsyncMock, return_value=device_data),
-            patch("nu_ai.utils.oauth.github_copilot._poll_for_github_access_token", new_callable=AsyncMock, return_value="gh-at"),
-            patch("nu_ai.utils.oauth.github_copilot.refresh_github_copilot_token", new_callable=AsyncMock, return_value=refresh_creds),
+            patch(
+                "nu_ai.utils.oauth.github_copilot._start_device_flow", new_callable=AsyncMock, return_value=device_data
+            ),
+            patch(
+                "nu_ai.utils.oauth.github_copilot._poll_for_github_access_token",
+                new_callable=AsyncMock,
+                return_value="gh-at",
+            ),
+            patch(
+                "nu_ai.utils.oauth.github_copilot.refresh_github_copilot_token",
+                new_callable=AsyncMock,
+                return_value=refresh_creds,
+            ),
             patch("nu_ai.utils.oauth.github_copilot._enable_all_models", new_callable=AsyncMock),
         ):
-            creds = await login_github_copilot(
-                on_auth=on_auth, on_prompt=on_prompt, on_progress=on_progress
-            )
+            creds = await login_github_copilot(on_auth=on_auth, on_prompt=on_prompt, on_progress=on_progress)
 
         assert creds.access == "copilot-token"
         on_auth.assert_called_once()
@@ -547,7 +570,11 @@ class TestGitHubCopilotProvider:
         creds = OAuthCredentials(refresh="r", access="a", expires=0)
         new_creds = OAuthCredentials(refresh="r", access="new-a", expires=999)
 
-        with patch("nu_ai.utils.oauth.github_copilot.refresh_github_copilot_token", new_callable=AsyncMock, return_value=new_creds):
+        with patch(
+            "nu_ai.utils.oauth.github_copilot.refresh_github_copilot_token",
+            new_callable=AsyncMock,
+            return_value=new_creds,
+        ):
             result = await github_copilot_oauth_provider.refresh_token(creds)
         assert result.access == "new-a"
 
@@ -558,7 +585,11 @@ class TestGitHubCopilotProvider:
         creds = OAuthCredentials(refresh="r", access="a", expires=0, extra_data={"enterpriseUrl": "ent.com"})
         new_creds = OAuthCredentials(refresh="r", access="new-a", expires=999)
 
-        with patch("nu_ai.utils.oauth.github_copilot.refresh_github_copilot_token", new_callable=AsyncMock, return_value=new_creds) as mock_refresh:
+        with patch(
+            "nu_ai.utils.oauth.github_copilot.refresh_github_copilot_token",
+            new_callable=AsyncMock,
+            return_value=new_creds,
+        ) as mock_refresh:
             await github_copilot_oauth_provider.refresh_token(creds)
         mock_refresh.assert_awaited_once_with("r", "ent.com")
 
@@ -570,6 +601,7 @@ class TestGitHubCopilotProvider:
             def __init__(self, provider, base_url=""):
                 self.provider = provider
                 self.base_url = base_url
+
             def model_dump(self):
                 return {"provider": self.provider, "base_url": self.base_url}
 
@@ -722,11 +754,7 @@ class TestGeminiCliHelpers:
     def test_is_vpc_sc_affected_true(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _is_vpc_sc_affected
 
-        payload = {
-            "error": {
-                "details": [{"reason": "SECURITY_POLICY_VIOLATED"}]
-            }
-        }
+        payload = {"error": {"details": [{"reason": "SECURITY_POLICY_VIOLATED"}]}}
         assert _is_vpc_sc_affected(payload) is True
 
     def test_is_vpc_sc_affected_false(self) -> None:
@@ -761,10 +789,13 @@ class TestDiscoverProject:
     async def test_existing_project(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "currentTier": {"id": "free-tier"},
-            "cloudaicompanionProject": "existing-proj",
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "currentTier": {"id": "free-tier"},
+                "cloudaicompanionProject": "existing-proj",
+            },
+        )
         cm, _ = _mock_async_client(post_response=load_resp)
 
         with patch("nu_ai.utils.oauth.google_gemini_cli.httpx.AsyncClient", return_value=cm):
@@ -804,16 +835,22 @@ class TestDiscoverProject:
     async def test_onboarding_free_tier(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "allowedTiers": [{"id": "free-tier", "isDefault": True}],
-        })
-
-        onboard_resp = _mock_response(200, json_data={
-            "done": True,
-            "response": {
-                "cloudaicompanionProject": {"id": "new-proj"},
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "allowedTiers": [{"id": "free-tier", "isDefault": True}],
             },
-        })
+        )
+
+        onboard_resp = _mock_response(
+            200,
+            json_data={
+                "done": True,
+                "response": {
+                    "cloudaicompanionProject": {"id": "new-proj"},
+                },
+            },
+        )
 
         call_count = 0
 
@@ -838,14 +875,20 @@ class TestDiscoverProject:
     async def test_onboarding_lro_pending(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "allowedTiers": [{"id": "free-tier", "isDefault": True}],
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "allowedTiers": [{"id": "free-tier", "isDefault": True}],
+            },
+        )
 
-        onboard_resp = _mock_response(200, json_data={
-            "done": False,
-            "name": "operations/op-123",
-        })
+        onboard_resp = _mock_response(
+            200,
+            json_data={
+                "done": False,
+                "name": "operations/op-123",
+            },
+        )
 
         call_count = 0
 
@@ -869,7 +912,9 @@ class TestDiscoverProject:
 
         with (
             patch("nu_ai.utils.oauth.google_gemini_cli.httpx.AsyncClient", return_value=cm),
-            patch("nu_ai.utils.oauth.google_gemini_cli._poll_operation", new_callable=AsyncMock, return_value=poll_result),
+            patch(
+                "nu_ai.utils.oauth.google_gemini_cli._poll_operation", new_callable=AsyncMock, return_value=poll_result
+            ),
         ):
             project = await _discover_project("token")
         assert project == "polled-proj"
@@ -878,9 +923,12 @@ class TestDiscoverProject:
     async def test_current_tier_no_project_needs_env(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "currentTier": {"id": "standard"},
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "currentTier": {"id": "standard"},
+            },
+        )
         cm, _ = _mock_async_client(post_response=load_resp)
 
         with patch("nu_ai.utils.oauth.google_gemini_cli.httpx.AsyncClient", return_value=cm):
@@ -891,9 +939,12 @@ class TestDiscoverProject:
     async def test_current_tier_uses_env_project(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "currentTier": {"id": "standard"},
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "currentTier": {"id": "standard"},
+            },
+        )
         cm, _ = _mock_async_client(post_response=load_resp)
 
         with (
@@ -907,9 +958,12 @@ class TestDiscoverProject:
     async def test_non_free_tier_requires_env_project(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "allowedTiers": [{"id": "paid-tier", "isDefault": True}],
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "allowedTiers": [{"id": "paid-tier", "isDefault": True}],
+            },
+        )
         cm, _ = _mock_async_client(post_response=load_resp)
 
         with (
@@ -918,6 +972,7 @@ class TestDiscoverProject:
         ):
             # Remove env vars if present
             import os
+
             os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
             os.environ.pop("GOOGLE_CLOUD_PROJECT_ID", None)
             with pytest.raises(RuntimeError, match="GOOGLE_CLOUD_PROJECT"):
@@ -927,14 +982,20 @@ class TestDiscoverProject:
     async def test_onboard_no_project_no_env_raises(self) -> None:
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "allowedTiers": [{"id": "free-tier", "isDefault": True}],
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "allowedTiers": [{"id": "free-tier", "isDefault": True}],
+            },
+        )
 
-        onboard_resp = _mock_response(200, json_data={
-            "done": True,
-            "response": {},
-        })
+        onboard_resp = _mock_response(
+            200,
+            json_data={
+                "done": True,
+                "response": {},
+            },
+        )
 
         call_count = 0
 
@@ -956,6 +1017,7 @@ class TestDiscoverProject:
             patch.dict("os.environ", {}, clear=True),
         ):
             import os
+
             os.environ.pop("GOOGLE_CLOUD_PROJECT", None)
             os.environ.pop("GOOGLE_CLOUD_PROJECT_ID", None)
             with pytest.raises(RuntimeError, match="Could not discover"):
@@ -1054,8 +1116,12 @@ class TestLoginGeminiCli:
             patch("nu_ai.utils.oauth.google_gemini_cli.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.google_gemini_cli.CallbackServer") as MockServer,
             patch("nu_ai.utils.oauth.google_gemini_cli.httpx.AsyncClient") as MockClient,
-            patch("nu_ai.utils.oauth.google_gemini_cli._get_user_email", new_callable=AsyncMock, return_value="u@g.com"),
-            patch("nu_ai.utils.oauth.google_gemini_cli._discover_project", new_callable=AsyncMock, return_value="proj-1"),
+            patch(
+                "nu_ai.utils.oauth.google_gemini_cli._get_user_email", new_callable=AsyncMock, return_value="u@g.com"
+            ),
+            patch(
+                "nu_ai.utils.oauth.google_gemini_cli._discover_project", new_callable=AsyncMock, return_value="proj-1"
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="auth-code", state="verifier"))
             MockServer.return_value = server_inst
@@ -1178,7 +1244,11 @@ class TestGeminiCliProvider:
         creds = OAuthCredentials(refresh="r", access="a", expires=0, extra_data={"projectId": "p"})
         new_creds = OAuthCredentials(refresh="nr", access="na", expires=999, extra_data={"projectId": "p"})
 
-        with patch("nu_ai.utils.oauth.google_gemini_cli.refresh_google_cloud_token", new_callable=AsyncMock, return_value=new_creds):
+        with patch(
+            "nu_ai.utils.oauth.google_gemini_cli.refresh_google_cloud_token",
+            new_callable=AsyncMock,
+            return_value=new_creds,
+        ):
             result = await gemini_cli_oauth_provider.refresh_token(creds)
         assert result.access == "na"
 
@@ -1332,8 +1402,12 @@ class TestLoginAntigravity:
             patch("nu_ai.utils.oauth.google_antigravity.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.google_antigravity.CallbackServer") as MockServer,
             patch("nu_ai.utils.oauth.google_antigravity.httpx.AsyncClient") as MockClient,
-            patch("nu_ai.utils.oauth.google_antigravity._get_user_email", new_callable=AsyncMock, return_value="ag@g.com"),
-            patch("nu_ai.utils.oauth.google_antigravity._discover_project", new_callable=AsyncMock, return_value="ag-proj"),
+            patch(
+                "nu_ai.utils.oauth.google_antigravity._get_user_email", new_callable=AsyncMock, return_value="ag@g.com"
+            ),
+            patch(
+                "nu_ai.utils.oauth.google_antigravity._discover_project", new_callable=AsyncMock, return_value="ag-proj"
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="code", state="verifier"))
             MockServer.return_value = server_inst
@@ -1421,7 +1495,9 @@ class TestLoginAntigravity:
             patch("nu_ai.utils.oauth.google_antigravity.CallbackServer") as MockServer,
             patch("nu_ai.utils.oauth.google_antigravity.httpx.AsyncClient") as MockClient,
             patch("nu_ai.utils.oauth.google_antigravity._get_user_email", new_callable=AsyncMock, return_value=None),
-            patch("nu_ai.utils.oauth.google_antigravity._discover_project", new_callable=AsyncMock, return_value="proj"),
+            patch(
+                "nu_ai.utils.oauth.google_antigravity._discover_project", new_callable=AsyncMock, return_value="proj"
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=None)
             MockServer.return_value = server_inst
@@ -1450,7 +1526,11 @@ class TestAntigravityProvider:
         creds = OAuthCredentials(refresh="r", access="a", expires=0, extra_data={"projectId": "p"})
         new_creds = OAuthCredentials(refresh="nr", access="na", expires=999, extra_data={"projectId": "p"})
 
-        with patch("nu_ai.utils.oauth.google_antigravity.refresh_antigravity_token", new_callable=AsyncMock, return_value=new_creds):
+        with patch(
+            "nu_ai.utils.oauth.google_antigravity.refresh_antigravity_token",
+            new_callable=AsyncMock,
+            return_value=new_creds,
+        ):
             result = await antigravity_oauth_provider.refresh_token(creds)
         assert result.access == "na"
 
@@ -1486,7 +1566,9 @@ class TestRefreshOpenAICodexToken:
             "expires": time.time() * 1000 + 3600_000,
         }
 
-        with patch("nu_ai.utils.oauth.openai_codex._refresh_access_token", new_callable=AsyncMock, return_value=refresh_result):
+        with patch(
+            "nu_ai.utils.oauth.openai_codex._refresh_access_token", new_callable=AsyncMock, return_value=refresh_result
+        ):
             creds = await refresh_openai_codex_token("old-rt")
 
         assert creds.access == jwt
@@ -1512,7 +1594,9 @@ class TestRefreshOpenAICodexToken:
             "expires": time.time() * 1000 + 3600_000,
         }
 
-        with patch("nu_ai.utils.oauth.openai_codex._refresh_access_token", new_callable=AsyncMock, return_value=refresh_result):
+        with patch(
+            "nu_ai.utils.oauth.openai_codex._refresh_access_token", new_callable=AsyncMock, return_value=refresh_result
+        ):
             with pytest.raises(RuntimeError, match="accountId"):
                 await refresh_openai_codex_token("rt")
 
@@ -1635,7 +1719,9 @@ class TestLoginOpenAICodex:
             patch("nu_ai.utils.oauth.openai_codex.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.openai_codex._create_state", return_value="test-state"),
             patch("nu_ai.utils.oauth.openai_codex.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result),
+            patch(
+                "nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="auth-code", state="test-state"))
             MockServer.return_value = server_inst
@@ -1663,7 +1749,9 @@ class TestLoginOpenAICodex:
             patch("nu_ai.utils.oauth.openai_codex.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.openai_codex._create_state", return_value="test-state"),
             patch("nu_ai.utils.oauth.openai_codex.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result),
+            patch(
+                "nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=None)
             MockServer.return_value = server_inst
@@ -1728,7 +1816,9 @@ class TestLoginOpenAICodex:
             patch("nu_ai.utils.oauth.openai_codex.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.openai_codex._create_state", return_value="test-state"),
             patch("nu_ai.utils.oauth.openai_codex.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result),
+            patch(
+                "nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="c", state="test-state"))
             MockServer.return_value = server_inst
@@ -1757,13 +1847,17 @@ class TestLoginOpenAICodex:
             patch("nu_ai.utils.oauth.openai_codex.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.openai_codex._create_state", return_value="test-state"),
             patch("nu_ai.utils.oauth.openai_codex.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result),
+            patch(
+                "nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=None)
             MockServer.return_value = server_inst
 
             creds = await login_openai_codex(
-                on_auth=on_auth, on_prompt=on_prompt, on_manual_code_input=manual_input,
+                on_auth=on_auth,
+                on_prompt=on_prompt,
+                on_manual_code_input=manual_input,
             )
 
         assert creds.extra_data["accountId"] == "acc3"
@@ -1795,7 +1889,9 @@ class TestOpenAICodexProvider:
         creds = OAuthCredentials(refresh="r", access="a", expires=0)
         new_creds = OAuthCredentials(refresh="nr", access="na", expires=999, extra_data={"accountId": "a1"})
 
-        with patch("nu_ai.utils.oauth.openai_codex.refresh_openai_codex_token", new_callable=AsyncMock, return_value=new_creds):
+        with patch(
+            "nu_ai.utils.oauth.openai_codex.refresh_openai_codex_token", new_callable=AsyncMock, return_value=new_creds
+        ):
             result = await openai_codex_oauth_provider.refresh_token(creds)
         assert result.access == "na"
 
@@ -1843,11 +1939,13 @@ class TestGetOAuthApiKeyRefresh:
         expired = OAuthCredentials(refresh="r", access="old-access", expires=0)  # expired
         refreshed = OAuthCredentials(refresh="r", access="new-access", expires=time.time() * 1000 + 3600_000)
 
-        with patch("nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, return_value=refreshed):
+        with patch(
+            "nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, return_value=refreshed
+        ):
             result = await get_oauth_api_key("anthropic", {"anthropic": expired})
 
         assert result is not None
-        creds, api_key = result
+        _creds, api_key = result
         assert api_key == "new-access"
 
     @pytest.mark.asyncio
@@ -1856,7 +1954,9 @@ class TestGetOAuthApiKeyRefresh:
 
         expired = OAuthCredentials(refresh="r", access="old", expires=0)
 
-        with patch("nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, side_effect=Exception("fail")):
+        with patch(
+            "nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, side_effect=Exception("fail")
+        ):
             with pytest.raises(RuntimeError, match="Failed to refresh"):
                 await get_oauth_api_key("anthropic", {"anthropic": expired})
 
@@ -1869,7 +1969,9 @@ class TestRefreshOAuthToken:
         creds = OAuthCredentials(refresh="r", access="a", expires=0)
         new_creds = OAuthCredentials(refresh="nr", access="na", expires=999)
 
-        with patch("nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, return_value=new_creds):
+        with patch(
+            "nu_ai.utils.oauth.anthropic.refresh_anthropic_token", new_callable=AsyncMock, return_value=new_creds
+        ):
             result = await refresh_oauth_token("anthropic", creds)
         assert result.access == "na"
 
@@ -1910,7 +2012,9 @@ class TestAnthropicManualCodeBranches:
 
             with pytest.raises(RuntimeError, match="manual input failed"):
                 await login_anthropic(
-                    on_auth=on_auth, on_prompt=on_prompt, on_manual_code_input=bad_manual,
+                    on_auth=on_auth,
+                    on_prompt=on_prompt,
+                    on_manual_code_input=bad_manual,
                 )
 
     @pytest.mark.asyncio
@@ -1929,24 +2033,29 @@ class TestAnthropicManualCodeBranches:
         with (
             patch("nu_ai.utils.oauth.anthropic.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.anthropic.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.anthropic._exchange_authorization_code", new_callable=AsyncMock, return_value=expected),
+            patch(
+                "nu_ai.utils.oauth.anthropic._exchange_authorization_code",
+                new_callable=AsyncMock,
+                return_value=expected,
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="server-code", state="verifier"))
             MockServer.return_value = server_inst
 
             creds = await login_anthropic(
-                on_auth=on_auth, on_prompt=on_prompt, on_manual_code_input=slow_manual,
+                on_auth=on_auth,
+                on_prompt=on_prompt,
+                on_manual_code_input=slow_manual,
             )
         assert creds.access == "at"
 
     @pytest.mark.asyncio
     async def test_missing_state_raises(self) -> None:
         """Missing state after code extraction -> ValueError."""
-        from nu_ai.utils.oauth.anthropic import login_anthropic
 
-        on_auth = MagicMock()
+        MagicMock()
         # Return a plain code with no state
-        on_prompt = AsyncMock(return_value="justcode")
+        AsyncMock(return_value="justcode")
 
         with (
             patch("nu_ai.utils.oauth.anthropic.generate_pkce", return_value=("verifier", "challenge")),
@@ -1960,7 +2069,6 @@ class TestAnthropicManualCodeBranches:
             # So we need to patch parse_authorization_input to return state=None and code=some_code
             # Actually the code does: state = parsed["state"] or verifier
             # So state won't be None. Let me test a different angle.
-            pass
 
     @pytest.mark.asyncio
     async def test_exchange_code_invalid_json(self) -> None:
@@ -1976,11 +2084,13 @@ class TestAnthropicManualCodeBranches:
         """_exchange_authorization_code happy path through _post_json."""
         from nu_ai.utils.oauth.anthropic import _exchange_authorization_code
 
-        response_json = json.dumps({
-            "access_token": "at",
-            "refresh_token": "rt",
-            "expires_in": 3600,
-        })
+        response_json = json.dumps(
+            {
+                "access_token": "at",
+                "refresh_token": "rt",
+                "expires_in": 3600,
+            }
+        )
 
         with patch("nu_ai.utils.oauth.anthropic._post_json", new_callable=AsyncMock, return_value=response_json):
             creds = await _exchange_authorization_code("code", "state", "verifier", "http://localhost/cb")
@@ -2047,14 +2157,20 @@ class TestGeminiManualCodeBranches:
         """Non-free tier with GOOGLE_CLOUD_PROJECT set should include project in onboard."""
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "allowedTiers": [{"id": "paid-tier", "isDefault": True}],
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "allowedTiers": [{"id": "paid-tier", "isDefault": True}],
+            },
+        )
 
-        onboard_resp = _mock_response(200, json_data={
-            "done": True,
-            "response": {"cloudaicompanionProject": "onboard-proj"},
-        })
+        onboard_resp = _mock_response(
+            200,
+            json_data={
+                "done": True,
+                "response": {"cloudaicompanionProject": "onboard-proj"},
+            },
+        )
 
         call_count = 0
 
@@ -2083,14 +2199,20 @@ class TestGeminiManualCodeBranches:
         """Onboard returns companion project as string instead of dict."""
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "allowedTiers": [{"id": "free-tier", "isDefault": True}],
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "allowedTiers": [{"id": "free-tier", "isDefault": True}],
+            },
+        )
 
-        onboard_resp = _mock_response(200, json_data={
-            "done": True,
-            "response": {"cloudaicompanionProject": "string-proj"},
-        })
+        onboard_resp = _mock_response(
+            200,
+            json_data={
+                "done": True,
+                "response": {"cloudaicompanionProject": "string-proj"},
+            },
+        )
 
         call_count = 0
 
@@ -2116,14 +2238,20 @@ class TestGeminiManualCodeBranches:
         """Onboard returns no project but env var is set."""
         from nu_ai.utils.oauth.google_gemini_cli import _discover_project
 
-        load_resp = _mock_response(200, json_data={
-            "allowedTiers": [{"id": "free-tier", "isDefault": True}],
-        })
+        load_resp = _mock_response(
+            200,
+            json_data={
+                "allowedTiers": [{"id": "free-tier", "isDefault": True}],
+            },
+        )
 
-        onboard_resp = _mock_response(200, json_data={
-            "done": True,
-            "response": {"cloudaicompanionProject": {}},
-        })
+        onboard_resp = _mock_response(
+            200,
+            json_data={
+                "done": True,
+                "response": {"cloudaicompanionProject": {}},
+            },
+        )
 
         call_count = 0
 
@@ -2206,7 +2334,9 @@ class TestAntigravityManualCodeBranches:
             patch("nu_ai.utils.oauth.google_antigravity.CallbackServer") as MockServer,
             patch("nu_ai.utils.oauth.google_antigravity.httpx.AsyncClient") as MockClient,
             patch("nu_ai.utils.oauth.google_antigravity._get_user_email", new_callable=AsyncMock, return_value=None),
-            patch("nu_ai.utils.oauth.google_antigravity._discover_project", new_callable=AsyncMock, return_value="proj"),
+            patch(
+                "nu_ai.utils.oauth.google_antigravity._discover_project", new_callable=AsyncMock, return_value="proj"
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="c", state="verifier"))
             MockServer.return_value = server_inst
@@ -2270,7 +2400,9 @@ class TestOpenAIManualCodeBranches:
 
             with pytest.raises(RuntimeError, match="manual failed"):
                 await login_openai_codex(
-                    on_auth=on_auth, on_prompt=on_prompt, on_manual_code_input=bad_manual,
+                    on_auth=on_auth,
+                    on_prompt=on_prompt,
+                    on_manual_code_input=bad_manual,
                 )
 
     @pytest.mark.asyncio
@@ -2291,13 +2423,17 @@ class TestOpenAIManualCodeBranches:
             patch("nu_ai.utils.oauth.openai_codex.generate_pkce", return_value=("verifier", "challenge")),
             patch("nu_ai.utils.oauth.openai_codex._create_state", return_value="test-state"),
             patch("nu_ai.utils.oauth.openai_codex.CallbackServer") as MockServer,
-            patch("nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result),
+            patch(
+                "nu_ai.utils.oauth.openai_codex._exchange_code", new_callable=AsyncMock, return_value=exchange_result
+            ),
         ):
             server_inst = _mock_callback_server(wait_result=CallbackResult(code="c", state="test-state"))
             MockServer.return_value = server_inst
 
             creds = await login_openai_codex(
-                on_auth=on_auth, on_prompt=on_prompt, on_manual_code_input=slow_manual,
+                on_auth=on_auth,
+                on_prompt=on_prompt,
+                on_manual_code_input=slow_manual,
             )
         assert creds.extra_data["accountId"] == "acc"
 
@@ -2321,7 +2457,9 @@ class TestOpenAIManualCodeBranches:
 
             with pytest.raises(ValueError, match="State mismatch"):
                 await login_openai_codex(
-                    on_auth=on_auth, on_prompt=on_prompt, on_manual_code_input=manual_with_bad_state,
+                    on_auth=on_auth,
+                    on_prompt=on_prompt,
+                    on_manual_code_input=manual_with_bad_state,
                 )
 
 
@@ -2401,10 +2539,10 @@ class TestGitHubCopilotAdditional:
         from nu_ai.utils.oauth.github_copilot import github_copilot_oauth_provider
 
         expected = OAuthCredentials(refresh="r", access="a", expires=100)
-        with patch("nu_ai.utils.oauth.github_copilot.login_github_copilot", new_callable=AsyncMock, return_value=expected):
-            result = await github_copilot_oauth_provider.login(
-                on_auth=MagicMock(), on_prompt=AsyncMock()
-            )
+        with patch(
+            "nu_ai.utils.oauth.github_copilot.login_github_copilot", new_callable=AsyncMock, return_value=expected
+        ):
+            result = await github_copilot_oauth_provider.login(on_auth=MagicMock(), on_prompt=AsyncMock())
         assert result == expected
 
 
@@ -2436,9 +2574,7 @@ class TestOpenAICodexAdditional:
 
         expected = OAuthCredentials(refresh="r", access="a", expires=100, extra_data={"accountId": "a1"})
         with patch("nu_ai.utils.oauth.openai_codex.login_openai_codex", new_callable=AsyncMock, return_value=expected):
-            result = await openai_codex_oauth_provider.login(
-                on_auth=MagicMock(), on_prompt=AsyncMock()
-            )
+            result = await openai_codex_oauth_provider.login(on_auth=MagicMock(), on_prompt=AsyncMock())
         assert result == expected
 
 
@@ -2448,10 +2584,10 @@ class TestGeminiCliProviderLogin:
         from nu_ai.utils.oauth.google_gemini_cli import gemini_cli_oauth_provider
 
         expected = OAuthCredentials(refresh="r", access="a", expires=100, extra_data={"projectId": "p"})
-        with patch("nu_ai.utils.oauth.google_gemini_cli.login_gemini_cli", new_callable=AsyncMock, return_value=expected):
-            result = await gemini_cli_oauth_provider.login(
-                on_auth=MagicMock(), on_prompt=AsyncMock()
-            )
+        with patch(
+            "nu_ai.utils.oauth.google_gemini_cli.login_gemini_cli", new_callable=AsyncMock, return_value=expected
+        ):
+            result = await gemini_cli_oauth_provider.login(on_auth=MagicMock(), on_prompt=AsyncMock())
         assert result == expected
 
 
@@ -2461,8 +2597,8 @@ class TestAntigravityProviderLogin:
         from nu_ai.utils.oauth.google_antigravity import antigravity_oauth_provider
 
         expected = OAuthCredentials(refresh="r", access="a", expires=100, extra_data={"projectId": "p"})
-        with patch("nu_ai.utils.oauth.google_antigravity.login_antigravity", new_callable=AsyncMock, return_value=expected):
-            result = await antigravity_oauth_provider.login(
-                on_auth=MagicMock(), on_prompt=AsyncMock()
-            )
+        with patch(
+            "nu_ai.utils.oauth.google_antigravity.login_antigravity", new_callable=AsyncMock, return_value=expected
+        ):
+            result = await antigravity_oauth_provider.login(on_auth=MagicMock(), on_prompt=AsyncMock())
         assert result == expected

@@ -11,13 +11,14 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from nu_coding_agent.modes.rpc.jsonl import attach_jsonl_line_reader, serialize_json_line
+from nu_coding_agent.modes.rpc.jsonl import attach_jsonl_line_reader
 from nu_coding_agent.modes.rpc.rpc_client import (
     ModelInfo,
     RpcClient,
@@ -27,12 +28,9 @@ from nu_coding_agent.modes.rpc.rpc_client import (
 from nu_coding_agent.modes.rpc.rpc_mode import (
     _create_extension_ui_context,
     _dispatch_command,
-    _error,
     _safe_prompt,
-    _success,
     _to_dict,
 )
-
 
 # ===========================================================================
 # _to_dict helper
@@ -648,9 +646,7 @@ class TestDispatchCommand:
         session = _make_session()
         from nu_ai import TextContent, UserMessage
 
-        session.agent.state.messages = [
-            UserMessage(content=[TextContent(type="text", text="hi")], timestamp=1000)
-        ]
+        session.agent.state.messages = [UserMessage(content=[TextContent(type="text", text="hi")], timestamp=1000)]
         resp = await _dispatch_command(
             cmd_type="get_messages",
             cmd_id="27",
@@ -752,13 +748,14 @@ class TestRunRpcMode:
 
         captured_output: list[str] = []
         fake_stdout = MagicMock()
-        fake_stdout.write = lambda s: captured_output.append(s)
+        fake_stdout.write = captured_output.append
         fake_stdout.flush = MagicMock()
 
         with (
             patch("nu_coding_agent.modes.rpc.rpc_mode.attach_jsonl_line_reader") as mock_attach,
             patch("nu_coding_agent.modes.rpc.rpc_mode.sys.stdout", fake_stdout),
         ):
+
             async def fake_attach_fn(on_line, **kwargs):
                 for raw_line in command.strip().split("\n"):
                     await on_line(raw_line)
@@ -769,10 +766,8 @@ class TestRunRpcMode:
             task = asyncio.create_task(run_rpc_mode(runtime))
             await asyncio.sleep(0.3)
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         assert len(captured_output) > 0
         parsed = json.loads(captured_output[0])
@@ -787,13 +782,14 @@ class TestRunRpcMode:
 
         captured_output: list[str] = []
         fake_stdout = MagicMock()
-        fake_stdout.write = lambda s: captured_output.append(s)
+        fake_stdout.write = captured_output.append
         fake_stdout.flush = MagicMock()
 
         with (
             patch("nu_coding_agent.modes.rpc.rpc_mode.attach_jsonl_line_reader") as mock_attach,
             patch("nu_coding_agent.modes.rpc.rpc_mode.sys.stdout", fake_stdout),
         ):
+
             async def fake_attach_fn(on_line, **kwargs):
                 await on_line("not valid json")
                 return lambda: None
@@ -803,10 +799,8 @@ class TestRunRpcMode:
             task = asyncio.create_task(run_rpc_mode(runtime))
             await asyncio.sleep(0.3)
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         assert len(captured_output) > 0
         parsed = json.loads(captured_output[0])
@@ -822,13 +816,14 @@ class TestRunRpcMode:
 
         captured_output: list[str] = []
         fake_stdout = MagicMock()
-        fake_stdout.write = lambda s: captured_output.append(s)
+        fake_stdout.write = captured_output.append
         fake_stdout.flush = MagicMock()
 
         with (
             patch("nu_coding_agent.modes.rpc.rpc_mode.attach_jsonl_line_reader") as mock_attach,
             patch("nu_coding_agent.modes.rpc.rpc_mode.sys.stdout", fake_stdout),
         ):
+
             async def fake_attach_fn(on_line, **kwargs):
                 # Send an extension UI response - should be handled without output
                 await on_line(json.dumps({"type": "extension_ui_response", "id": "xxx"}))
@@ -839,10 +834,8 @@ class TestRunRpcMode:
             task = asyncio.create_task(run_rpc_mode(runtime))
             await asyncio.sleep(0.3)
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         # Extension UI response should not produce output (no matching pending request)
         assert len(captured_output) == 0
@@ -858,13 +851,14 @@ class TestRunRpcMode:
 
         captured_output: list[str] = []
         fake_stdout = MagicMock()
-        fake_stdout.write = lambda s: captured_output.append(s)
+        fake_stdout.write = captured_output.append
         fake_stdout.flush = MagicMock()
 
         with (
             patch("nu_coding_agent.modes.rpc.rpc_mode.attach_jsonl_line_reader") as mock_attach,
             patch("nu_coding_agent.modes.rpc.rpc_mode.sys.stdout", fake_stdout),
         ):
+
             async def fake_attach_fn(on_line, **kwargs):
                 await on_line(json.dumps({"id": "1", "type": "abort"}))
                 return lambda: None
@@ -874,10 +868,8 @@ class TestRunRpcMode:
             task = asyncio.create_task(run_rpc_mode(runtime))
             await asyncio.sleep(0.3)
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
         assert len(captured_output) > 0
         parsed = json.loads(captured_output[0])
@@ -904,9 +896,8 @@ class TestRpcClientOptions:
 class TestRpcClientLifecycle:
     async def test_start_raises_when_no_cli_found(self) -> None:
         client = RpcClient(RpcClientOptions(cli_path=None))
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(RpcClientError, match="Cannot find"):
-                await client.start()
+        with patch("shutil.which", return_value=None), pytest.raises(RpcClientError, match="Cannot find"):
+            await client.start()
 
     async def test_stop_without_start_is_safe(self) -> None:
         client = RpcClient()
@@ -1036,7 +1027,12 @@ class TestRpcClientAPIMethods:
     async def _setup_client(self) -> RpcClient:
         client = RpcClient()
         # Make _request return a canned response
-        client._request = AsyncMock(return_value={"success": True, "data": {"models": [], "messages": [], "commands": [], "text": "hi", "path": "/tmp/x.html"}})
+        client._request = AsyncMock(
+            return_value={
+                "success": True,
+                "data": {"models": [], "messages": [], "commands": [], "text": "hi", "path": "/tmp/x.html"},
+            }
+        )
         return client
 
     async def test_prompt(self) -> None:

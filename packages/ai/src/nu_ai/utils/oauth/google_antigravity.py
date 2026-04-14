@@ -26,10 +26,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 def _default_client_id() -> str:
     # Google's public Antigravity CLI OAuth client (not a secret —
     # embedded in every copy of the CLI, same as the upstream TS repo).
-    parts = ["MTA3MTAwNjA2MDU5MS10bWhzc2lu", "MmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5h", "cHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ=="]
+    parts = [
+        "MTA3MTAwNjA2MDU5MS10bWhzc2lu",
+        "MmgyMWxjcmUyMzV2dG9sb2poNGc0MDNlcC5h",
+        "cHBzLmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
+    ]
     return base64.b64decode("".join(parts)).decode()
 
 

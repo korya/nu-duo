@@ -194,10 +194,10 @@ async def _download_file(url: str, dest: Path) -> None:
         httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT_S, follow_redirects=True) as client,
         client.stream("GET", url) as resp,
     ):
-            resp.raise_for_status()
-            with dest.open("wb") as fh:
-                async for chunk in resp.aiter_bytes(chunk_size=65_536):
-                    fh.write(chunk)
+        resp.raise_for_status()
+        with dest.open("wb") as fh:
+            async for chunk in resp.aiter_bytes(chunk_size=65_536):
+                fh.write(chunk)
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +223,7 @@ async def _download_tool(tool: ToolName) -> str:
     binary_ext = ".exe" if plat == "win32" else ""
     binary_path = bin_dir / (config.binary_name + binary_ext)
 
-    download_url = (
-        f"https://github.com/{config.repo}/releases/download/"
-        f"{config.tag_prefix}{version}/{asset_name}"
-    )
+    download_url = f"https://github.com/{config.repo}/releases/download/{config.tag_prefix}{version}/{asset_name}"
 
     # Use a per-invocation temp directory so concurrent downloads don't clash.
     with tempfile.TemporaryDirectory(dir=bin_dir, prefix=f"dl_{config.binary_name}_") as tmp:
@@ -263,10 +260,7 @@ async def _download_tool(tool: ToolName) -> str:
                 found = _find_binary_recursively(extract_dir, binary_file_name)
 
             if found is None:
-                raise RuntimeError(
-                    f"Binary not found in archive: expected {binary_file_name} "
-                    f"under {extract_dir}"
-                )
+                raise RuntimeError(f"Binary not found in archive: expected {binary_file_name} under {extract_dir}")
 
             shutil.move(str(found), str(binary_path))
 

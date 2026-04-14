@@ -21,13 +21,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ===========================================================================
 # export_html/index.py — _pre_render_custom_tools + tool_renderer
@@ -250,7 +248,7 @@ class TestBashToolExtended:
             options=BashToolOptions(operations=BashOperations(exec=fake_exec)),
         )
         updates: list[Any] = []
-        result = await tool.execute("c1", {"command": "ignored"}, on_update=updates.append)
+        await tool.execute("c1", {"command": "ignored"}, on_update=updates.append)
         assert len(updates) > 0
 
 
@@ -279,33 +277,33 @@ class TestGitEdgeCases:
         from nu_coding_agent.utils.git import _split_ref
 
         # Hash with empty parts
-        repo, ref = _split_ref("something#")
+        _repo, ref = _split_ref("something#")
         # rsplit with empty ref returns original
         assert ref is None or ref == ""
 
     def test_url_ref_empty_path(self) -> None:
         from nu_coding_agent.utils.git import _split_ref
 
-        repo, ref = _split_ref("https://github.com/@main")
+        _repo, ref = _split_ref("https://github.com/@main")
         # Empty repo_path
         assert ref is None
 
     def test_bare_host_ref(self) -> None:
         from nu_coding_agent.utils.git import _split_ref
 
-        repo, ref = _split_ref("host.com/owner/repo@v1")
+        _repo, ref = _split_ref("host.com/owner/repo@v1")
         assert ref == "v1"
 
     def test_bare_host_no_slash(self) -> None:
         from nu_coding_agent.utils.git import _split_ref
 
-        repo, ref = _split_ref("noslash")
+        _repo, ref = _split_ref("noslash")
         assert ref is None
 
     def test_bare_host_empty_ref(self) -> None:
         from nu_coding_agent.utils.git import _split_ref
 
-        repo, ref = _split_ref("host.com/@")
+        _repo, ref = _split_ref("host.com/@")
         assert ref is None
 
     def test_shorthand_no_slash(self) -> None:
@@ -331,7 +329,7 @@ class TestGitEdgeCases:
     def test_url_with_at_in_path_empty_ref(self) -> None:
         from nu_coding_agent.utils.git import _split_ref
 
-        repo, ref = _split_ref("https://github.com/owner/repo@")
+        _repo, ref = _split_ref("https://github.com/owner/repo@")
         assert ref is None
 
 
@@ -351,10 +349,9 @@ class TestShellExtended:
         from nu_coding_agent.utils.shell import kill_process_tree
 
         # When killpg fails, falls back to kill
-        with patch("os.killpg", side_effect=ProcessLookupError):
-            with patch("os.kill") as mock_kill:
-                kill_process_tree(999999)
-                # May or may not be called depending on exception in os.kill too
+        with patch("os.killpg", side_effect=ProcessLookupError), patch("os.kill"):
+            kill_process_tree(999999)
+            # May or may not be called depending on exception in os.kill too
 
     def test_get_shell_config_no_bin_bash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from nu_coding_agent.utils.shell import get_shell_config, reset_shell_config_cache
@@ -498,10 +495,12 @@ class TestExtensionRunnerExtended:
         def register2(api):
             api.on("agent_start", lambda e, c: "result2")
 
-        result = await load_extensions_from_factories([
-            ("<inline:a>", register),
-            ("<inline:b>", register2),
-        ])
+        result = await load_extensions_from_factories(
+            [
+                ("<inline:a>", register),
+                ("<inline:b>", register2),
+            ]
+        )
         runner = ExtensionRunner.create(extensions=result.extensions, runtime=result.runtime)
         results = await runner.emit_with_results(AgentStartEvent())
         assert results == ["result1", "result2"]
@@ -687,12 +686,14 @@ class TestAuthStorageEdgeCases:
     def test_credential_from_jsonable_oauth_non_str_refresh(self) -> None:
         from nu_coding_agent.core.auth_storage import _credential_from_jsonable
 
-        cred = _credential_from_jsonable({
-            "type": "oauth",
-            "access_token": "x",
-            "refresh_token": 123,  # not str
-            "expires": 999,
-        })
+        cred = _credential_from_jsonable(
+            {
+                "type": "oauth",
+                "access_token": "x",
+                "refresh_token": 123,  # not str
+                "expires": 999,
+            }
+        )
         assert cred is not None
         assert cred.refresh_token is None
 
@@ -711,6 +712,7 @@ class TestAuthStorageEdgeCases:
                 class P:
                     def get_api_key(self, cred):
                         return "key"
+
                 return P()
 
             def list_providers(self):
@@ -767,7 +769,7 @@ class TestAuthStorageEdgeCases:
 class TestModelResolverEdgeCases:
     def test_find_exact_ambiguous_bare_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Bare id that matches multiple providers is rejected."""
-        from nu_coding_agent.core.auth_storage import ApiKeyCredential, AuthStorage
+        from nu_coding_agent.core.auth_storage import AuthStorage
         from nu_coding_agent.core.model_registry import ModelRegistry
         from nu_coding_agent.core.model_resolver import find_exact_model_reference_match
 
@@ -782,7 +784,7 @@ class TestModelResolverEdgeCases:
         assert result is None
 
     def test_resolve_scope_pattern_no_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from nu_coding_agent.core.auth_storage import ApiKeyCredential, AuthStorage
+        from nu_coding_agent.core.auth_storage import AuthStorage
         from nu_coding_agent.core.model_registry import ModelRegistry
         from nu_coding_agent.core.model_resolver import resolve_model_scope
 
@@ -852,12 +854,14 @@ class TestSkillsEdgeCases:
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: ok\n---\n")
 
-        result = load_skills(LoadSkillsOptions(
-            cwd=str(tmp_path),
-            agent_dir=str(agent_dir),
-            skill_paths=[str(user_skills)],
-            include_defaults=False,
-        ))
+        result = load_skills(
+            LoadSkillsOptions(
+                cwd=str(tmp_path),
+                agent_dir=str(agent_dir),
+                skill_paths=[str(user_skills)],
+                include_defaults=False,
+            )
+        )
         assert any(s.name == "my-skill" for s in result.skills)
 
     def test_normalize_path_tilde_only(self) -> None:
@@ -967,7 +971,7 @@ class TestBranchSummarizationEdgeCases:
             },
         ]
         # Small budget to trigger squeezing
-        prep = prepare_branch_entries(entries, token_budget=50)
+        prepare_branch_entries(entries, token_budget=50)
         # Messages should have been collected
 
 
@@ -1009,7 +1013,6 @@ class TestEditDiffEdgeCases:
 
     def test_error_messages_multi_edit(self) -> None:
         from nu_coding_agent.core.tools.edit_diff import (
-            Edit,
             _duplicate_error,
             _empty_old_text_error,
             _no_change_error,
@@ -1040,7 +1043,7 @@ class TestPathUtilsEdgeCases:
         from nu_coding_agent.core.tools.path_utils import resolve_read_path
 
         # Create a file with the narrow no-break space variant
-        name_with_nnbsp = f"Screenshot 2024-01-01 at 10.30.00\u202fAM.png"
+        name_with_nnbsp = "Screenshot 2024-01-01 at 10.30.00\u202fAM.png"
         (tmp_path / name_with_nnbsp).write_text("image")
         # Query with normal space
         result = resolve_read_path("Screenshot 2024-01-01 at 10.30.00 AM.png", str(tmp_path))

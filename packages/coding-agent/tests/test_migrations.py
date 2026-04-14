@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from nu_coding_agent.migrations import (
     MigrationResult,
     _check_deprecated_extension_dirs,
@@ -17,7 +15,6 @@ from nu_coding_agent.migrations import (
     migrate_sessions_from_agent_root,
     run_migrations,
 )
-
 
 # ---------------------------------------------------------------------------
 # migrate_auth_to_auth_json
@@ -101,7 +98,7 @@ class TestMigrateAuthToAuthJson:
 class TestMigrateSessionsFromAgentRoot:
     def test_moves_jsonl_files(self, tmp_path: Path) -> None:
         header = json.dumps({"type": "session", "cwd": "/home/user/project"})
-        (tmp_path / "session1.jsonl").write_text(f"{header}\n{{\"msg\": \"hi\"}}\n")
+        (tmp_path / "session1.jsonl").write_text(f'{header}\n{{"msg": "hi"}}\n')
 
         migrate_sessions_from_agent_root(str(tmp_path))
 
@@ -515,8 +512,9 @@ class TestShowDeprecationWarningsTty:
     @pytest.mark.asyncio
     async def test_with_tty_stdin(self) -> None:
         """When stdin is a tty, exercises the termios path (lines 298-310)."""
-        from nu_coding_agent.migrations import show_deprecation_warnings
         import io
+
+        from nu_coding_agent.migrations import show_deprecation_warnings
 
         with (
             patch("sys.stdin") as mock_stdin,

@@ -56,7 +56,7 @@ def _find_git_paths(cwd: str) -> _GitPaths | None:
                     content = Path(git_path).read_text(encoding="utf-8").strip()
                     if content.startswith("gitdir: "):
                         git_dir = os.path.normpath(
-                            os.path.join(directory, content[len("gitdir: "):].strip()),
+                            os.path.join(directory, content[len("gitdir: ") :].strip()),
                         )
                         head_path = os.path.join(git_dir, "HEAD")
                         if not os.path.exists(head_path):
@@ -118,7 +118,7 @@ def _read_branch_from_head(git_paths: _GitPaths) -> str | None:
     try:
         content = Path(git_paths.head_path).read_text(encoding="utf-8").strip()
         if content.startswith("ref: refs/heads/"):
-            branch = content[len("ref: refs/heads/"):]
+            branch = content[len("ref: refs/heads/") :]
             if branch == ".invalid":
                 # Reftable repos write ".invalid" — fall back to git CLI.
                 return _resolve_branch_with_git_sync(git_paths.repo_dir) or "detached"

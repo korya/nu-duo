@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from nu_coding_agent.utils.tools_manager import (
     _download_file,
     _download_tool,
@@ -22,7 +20,6 @@ from nu_coding_agent.utils.tools_manager import (
     ensure_tool,
     get_tool_path,
 )
-
 
 # ---------------------------------------------------------------------------
 # _is_offline_mode
@@ -394,8 +391,8 @@ class AsyncIterator:
 class TestDownloadTool:
     @pytest.mark.asyncio
     async def test_downloads_and_extracts_tar_gz(self, tmp_path: Path) -> None:
-        import tarfile
         import io
+        import tarfile
 
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -441,8 +438,8 @@ class TestDownloadTool:
 
     @pytest.mark.asyncio
     async def test_downloads_zip(self, tmp_path: Path) -> None:
-        import zipfile
         import io
+        import zipfile
 
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -459,6 +456,7 @@ class TestDownloadTool:
             patch("nu_coding_agent.utils.tools_manager._get_latest_version", return_value="10.2.0"),
             patch("nu_coding_agent.utils.tools_manager._download_file") as mock_dl,
         ):
+
             async def fake_download(url: str, dest: Path) -> None:
                 dest.write_bytes(zip_bytes)
 
@@ -468,8 +466,8 @@ class TestDownloadTool:
 
     @pytest.mark.asyncio
     async def test_binary_not_found_in_archive(self, tmp_path: Path) -> None:
-        import tarfile
         import io
+        import tarfile
 
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -488,6 +486,7 @@ class TestDownloadTool:
             patch("nu_coding_agent.utils.tools_manager._get_latest_version", return_value="10.2.0"),
             patch("nu_coding_agent.utils.tools_manager._download_file") as mock_dl,
         ):
+
             async def fake_download(url: str, dest: Path) -> None:
                 dest.write_bytes(tar_bytes)
 

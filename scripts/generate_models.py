@@ -167,12 +167,71 @@ def _fetch_models_dev(client: httpx.Client) -> list[ModelDict]:
             if provider == "huggingface":
                 compat_val = {"supportsDeveloperRole": False}
 
-            models.append(_make_model(
+            models.append(
+                _make_model(
+                    id=model_id,
+                    name=m.get("name") or model_id,
+                    api=api,
+                    provider=provider,
+                    base_url=base_url,
+                    reasoning=m.get("reasoning") is True,
+                    input=_input_modalities(m.get("modalities", {}).get("input")),
+                    cost=_cost(
+                        m.get("cost", {}).get("input", 0),
+                        m.get("cost", {}).get("output", 0),
+                        m.get("cost", {}).get("cache_read", 0),
+                        m.get("cost", {}).get("cache_write", 0),
+                    ),
+                    context_window=m.get("limit", {}).get("context", 4096),
+                    max_tokens=m.get("limit", {}).get("output", 4096),
+                    compat=compat_val,
+                )
+            )
+
+    # --- Amazon Bedrock ---
+    bedrock = data.get("amazon-bedrock", {}).get("models", {})
+    for model_id, m in bedrock.items():
+        if m.get("tool_call") is not True:
+            continue
+        if model_id.startswith("ai21.jamba"):
+            continue
+        if model_id.startswith("mistral.mistral-7b-instruct-v0"):
+            continue
+        models.append(
+            _make_model(
                 id=model_id,
                 name=m.get("name") or model_id,
-                api=api,
-                provider=provider,
-                base_url=base_url,
+                api="bedrock-converse-stream",
+                provider="amazon-bedrock",
+                base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+                reasoning=m.get("reasoning") is True,
+                input=_input_modalities(m.get("modalities", {}).get("input")),
+                cost=_cost(
+                    m.get("cost", {}).get("input", 0),
+                    m.get("cost", {}).get("output", 0),
+                    m.get("cost", {}).get("cache_read", 0),
+                    m.get("cost", {}).get("cache_write", 0),
+                ),
+                context_window=m.get("limit", {}).get("context", 4096),
+                max_tokens=m.get("limit", {}).get("output", 4096),
+            )
+        )
+
+    # --- zAi (zai-coding-plan) ---
+    zai = data.get("zai-coding-plan", {}).get("models", {})
+    for model_id, m in zai.items():
+        if m.get("tool_call") is not True:
+            continue
+        compat_val: dict[str, Any] = {"supportsDeveloperRole": False, "thinkingFormat": "zai"}
+        if model_id not in ZAI_TOOL_STREAM_UNSUPPORTED_MODELS:
+            compat_val["zaiToolStream"] = True
+        models.append(
+            _make_model(
+                id=model_id,
+                name=m.get("name") or model_id,
+                api="openai-completions",
+                provider="zai",
+                base_url="https://api.z.ai/api/coding/paas/v4",
                 reasoning=m.get("reasoning") is True,
                 input=_input_modalities(m.get("modalities", {}).get("input")),
                 cost=_cost(
@@ -184,61 +243,8 @@ def _fetch_models_dev(client: httpx.Client) -> list[ModelDict]:
                 context_window=m.get("limit", {}).get("context", 4096),
                 max_tokens=m.get("limit", {}).get("output", 4096),
                 compat=compat_val,
-            ))
-
-    # --- Amazon Bedrock ---
-    bedrock = data.get("amazon-bedrock", {}).get("models", {})
-    for model_id, m in bedrock.items():
-        if m.get("tool_call") is not True:
-            continue
-        if model_id.startswith("ai21.jamba"):
-            continue
-        if model_id.startswith("mistral.mistral-7b-instruct-v0"):
-            continue
-        models.append(_make_model(
-            id=model_id,
-            name=m.get("name") or model_id,
-            api="bedrock-converse-stream",
-            provider="amazon-bedrock",
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
-            reasoning=m.get("reasoning") is True,
-            input=_input_modalities(m.get("modalities", {}).get("input")),
-            cost=_cost(
-                m.get("cost", {}).get("input", 0),
-                m.get("cost", {}).get("output", 0),
-                m.get("cost", {}).get("cache_read", 0),
-                m.get("cost", {}).get("cache_write", 0),
-            ),
-            context_window=m.get("limit", {}).get("context", 4096),
-            max_tokens=m.get("limit", {}).get("output", 4096),
-        ))
-
-    # --- zAi (zai-coding-plan) ---
-    zai = data.get("zai-coding-plan", {}).get("models", {})
-    for model_id, m in zai.items():
-        if m.get("tool_call") is not True:
-            continue
-        compat_val: dict[str, Any] = {"supportsDeveloperRole": False, "thinkingFormat": "zai"}
-        if model_id not in ZAI_TOOL_STREAM_UNSUPPORTED_MODELS:
-            compat_val["zaiToolStream"] = True
-        models.append(_make_model(
-            id=model_id,
-            name=m.get("name") or model_id,
-            api="openai-completions",
-            provider="zai",
-            base_url="https://api.z.ai/api/coding/paas/v4",
-            reasoning=m.get("reasoning") is True,
-            input=_input_modalities(m.get("modalities", {}).get("input")),
-            cost=_cost(
-                m.get("cost", {}).get("input", 0),
-                m.get("cost", {}).get("output", 0),
-                m.get("cost", {}).get("cache_read", 0),
-                m.get("cost", {}).get("cache_write", 0),
-            ),
-            context_window=m.get("limit", {}).get("context", 4096),
-            max_tokens=m.get("limit", {}).get("output", 4096),
-            compat=compat_val,
-        ))
+            )
+        )
 
     # --- OpenCode (Zen / Go) ---
     opencode_variants = [
@@ -267,23 +273,25 @@ def _fetch_models_dev(client: httpx.Client) -> list[ModelDict]:
                 api = "openai-completions"
                 base_url = f"{base_path}/v1"
 
-            models.append(_make_model(
-                id=model_id,
-                name=m.get("name") or model_id,
-                api=api,
-                provider=provider,
-                base_url=base_url,
-                reasoning=m.get("reasoning") is True,
-                input=_input_modalities(m.get("modalities", {}).get("input")),
-                cost=_cost(
-                    m.get("cost", {}).get("input", 0),
-                    m.get("cost", {}).get("output", 0),
-                    m.get("cost", {}).get("cache_read", 0),
-                    m.get("cost", {}).get("cache_write", 0),
-                ),
-                context_window=m.get("limit", {}).get("context", 4096),
-                max_tokens=m.get("limit", {}).get("output", 4096),
-            ))
+            models.append(
+                _make_model(
+                    id=model_id,
+                    name=m.get("name") or model_id,
+                    api=api,
+                    provider=provider,
+                    base_url=base_url,
+                    reasoning=m.get("reasoning") is True,
+                    input=_input_modalities(m.get("modalities", {}).get("input")),
+                    cost=_cost(
+                        m.get("cost", {}).get("input", 0),
+                        m.get("cost", {}).get("output", 0),
+                        m.get("cost", {}).get("cache_read", 0),
+                        m.get("cost", {}).get("cache_write", 0),
+                    ),
+                    context_window=m.get("limit", {}).get("context", 4096),
+                    max_tokens=m.get("limit", {}).get("output", 4096),
+                )
+            )
 
     # --- GitHub Copilot ---
     copilot = data.get("github-copilot", {}).get("models", {})
@@ -335,12 +343,38 @@ def _fetch_models_dev(client: httpx.Client) -> list[ModelDict]:
         for model_id, m in section.items():
             if m.get("tool_call") is not True:
                 continue
-            models.append(_make_model(
+            models.append(
+                _make_model(
+                    id=model_id,
+                    name=m.get("name") or model_id,
+                    api="anthropic-messages",
+                    provider=provider,
+                    base_url=base_url,
+                    reasoning=m.get("reasoning") is True,
+                    input=_input_modalities(m.get("modalities", {}).get("input")),
+                    cost=_cost(
+                        m.get("cost", {}).get("input", 0),
+                        m.get("cost", {}).get("output", 0),
+                        m.get("cost", {}).get("cache_read", 0),
+                        m.get("cost", {}).get("cache_write", 0),
+                    ),
+                    context_window=m.get("limit", {}).get("context", 4096),
+                    max_tokens=m.get("limit", {}).get("output", 4096),
+                )
+            )
+
+    # --- Kimi For Coding ---
+    kimi = data.get("kimi-for-coding", {}).get("models", {})
+    for model_id, m in kimi.items():
+        if m.get("tool_call") is not True:
+            continue
+        models.append(
+            _make_model(
                 id=model_id,
                 name=m.get("name") or model_id,
                 api="anthropic-messages",
-                provider=provider,
-                base_url=base_url,
+                provider="kimi-coding",
+                base_url="https://api.kimi.com/coding",
                 reasoning=m.get("reasoning") is True,
                 input=_input_modalities(m.get("modalities", {}).get("input")),
                 cost=_cost(
@@ -351,30 +385,8 @@ def _fetch_models_dev(client: httpx.Client) -> list[ModelDict]:
                 ),
                 context_window=m.get("limit", {}).get("context", 4096),
                 max_tokens=m.get("limit", {}).get("output", 4096),
-            ))
-
-    # --- Kimi For Coding ---
-    kimi = data.get("kimi-for-coding", {}).get("models", {})
-    for model_id, m in kimi.items():
-        if m.get("tool_call") is not True:
-            continue
-        models.append(_make_model(
-            id=model_id,
-            name=m.get("name") or model_id,
-            api="anthropic-messages",
-            provider="kimi-coding",
-            base_url="https://api.kimi.com/coding",
-            reasoning=m.get("reasoning") is True,
-            input=_input_modalities(m.get("modalities", {}).get("input")),
-            cost=_cost(
-                m.get("cost", {}).get("input", 0),
-                m.get("cost", {}).get("output", 0),
-                m.get("cost", {}).get("cache_read", 0),
-                m.get("cost", {}).get("cache_write", 0),
-            ),
-            context_window=m.get("limit", {}).get("context", 4096),
-            max_tokens=m.get("limit", {}).get("output", 4096),
-        ))
+            )
+        )
 
     print(f"Loaded {len(models)} tool-capable models from models.dev")
     return models
@@ -409,18 +421,20 @@ def _fetch_openrouter(client: httpx.Client) -> list[ModelDict]:
         cache_write_cost = float(pricing.get("input_cache_write", "0")) * 1_000_000
 
         top_prov = model.get("top_provider") or {}
-        models.append(_make_model(
-            id=model["id"],
-            name=model.get("name", model["id"]),
-            api="openai-completions",
-            provider="openrouter",
-            base_url="https://openrouter.ai/api/v1",
-            reasoning="reasoning" in supported,
-            input=input_mods,
-            cost=_cost(input_cost, output_cost, cache_read_cost, cache_write_cost),
-            context_window=model.get("context_length", 4096),
-            max_tokens=top_prov.get("max_completion_tokens", 4096),
-        ))
+        models.append(
+            _make_model(
+                id=model["id"],
+                name=model.get("name", model["id"]),
+                api="openai-completions",
+                provider="openrouter",
+                base_url="https://openrouter.ai/api/v1",
+                reasoning="reasoning" in supported,
+                input=input_mods,
+                cost=_cost(input_cost, output_cost, cache_read_cost, cache_write_cost),
+                context_window=model.get("context_length", 4096),
+                max_tokens=top_prov.get("max_completion_tokens", 4096),
+            )
+        )
 
     print(f"Fetched {len(models)} tool-capable models from OpenRouter")
     return models
@@ -457,18 +471,20 @@ def _fetch_ai_gateway(client: httpx.Client) -> list[ModelDict]:
         cache_read_cost = _to_number(pricing.get("input_cache_read")) * 1_000_000
         cache_write_cost = _to_number(pricing.get("input_cache_write")) * 1_000_000
 
-        models.append(_make_model(
-            id=model["id"],
-            name=model.get("name") or model["id"],
-            api="anthropic-messages",
-            provider="vercel-ai-gateway",
-            base_url=AI_GATEWAY_BASE_URL,
-            reasoning="reasoning" in tags,
-            input=input_mods,
-            cost=_cost(input_cost, output_cost, cache_read_cost, cache_write_cost),
-            context_window=model.get("context_window", 4096),
-            max_tokens=model.get("max_tokens", 4096),
-        ))
+        models.append(
+            _make_model(
+                id=model["id"],
+                name=model.get("name") or model["id"],
+                api="anthropic-messages",
+                provider="vercel-ai-gateway",
+                base_url=AI_GATEWAY_BASE_URL,
+                reasoning="reasoning" in tags,
+                input=input_mods,
+                cost=_cost(input_cost, output_cost, cache_read_cost, cache_write_cost),
+                context_window=model.get("context_window", 4096),
+                max_tokens=model.get("max_tokens", 4096),
+            )
+        )
 
     print(f"Fetched {len(models)} tool-capable models from Vercel AI Gateway")
     return models
@@ -477,6 +493,7 @@ def _fetch_ai_gateway(client: httpx.Client) -> list[ModelDict]:
 # ---------------------------------------------------------------------------
 # Post-processing: overrides, static additions, dedup — mirroring TS logic.
 # ---------------------------------------------------------------------------
+
 
 def _has(models: list[ModelDict], provider: str, model_id: str) -> bool:
     return any(m["provider"] == provider and m["id"] == model_id for m in models)
@@ -487,8 +504,7 @@ def _apply_overrides_and_additions(all_models: list[ModelDict]) -> list[ModelDic
 
     # Filter out gpt-5.3-codex-spark from opencode/opencode-go
     all_models = [
-        m for m in all_models
-        if not (m["provider"] in ("opencode", "opencode-go") and m["id"] == "gpt-5.3-codex-spark")
+        m for m in all_models if not (m["provider"] in ("opencode", "opencode-go") and m["id"] == "gpt-5.3-codex-spark")
     ]
 
     # Fix Opus 4.5 cache pricing
@@ -503,9 +519,11 @@ def _apply_overrides_and_additions(all_models: list[ModelDict]) -> list[ModelDic
             m["cost"]["cacheRead"] = 0.5
             m["cost"]["cacheWrite"] = 6.25
 
-        if (
-            m["provider"] in ("anthropic", "opencode", "opencode-go", "github-copilot")
-            and m["id"] in ("claude-opus-4-6", "claude-sonnet-4-6", "claude-opus-4.6", "claude-sonnet-4.6")
+        if m["provider"] in ("anthropic", "opencode", "opencode-go", "github-copilot") and m["id"] in (
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+            "claude-opus-4.6",
+            "claude-sonnet-4.6",
         ):
             m["contextWindow"] = 1_000_000
 
@@ -543,85 +561,148 @@ def _apply_overrides_and_additions(all_models: list[ModelDict]) -> list[ModelDic
     # --- Static additions (missing models) ---
 
     if not _has(all_models, "amazon-bedrock", "eu.anthropic.claude-opus-4-6-v1"):
-        all_models.append(_make_model(
-            id="eu.anthropic.claude-opus-4-6-v1", name="Claude Opus 4.6 (EU)",
-            api="bedrock-converse-stream", provider="amazon-bedrock",
-            base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(5, 25, 0.5, 6.25), context_window=200_000, max_tokens=128_000,
-        ))
+        all_models.append(
+            _make_model(
+                id="eu.anthropic.claude-opus-4-6-v1",
+                name="Claude Opus 4.6 (EU)",
+                api="bedrock-converse-stream",
+                provider="amazon-bedrock",
+                base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(5, 25, 0.5, 6.25),
+                context_window=200_000,
+                max_tokens=128_000,
+            )
+        )
 
     if not _has(all_models, "anthropic", "claude-opus-4-6"):
-        all_models.append(_make_model(
-            id="claude-opus-4-6", name="Claude Opus 4.6",
-            api="anthropic-messages", provider="anthropic",
-            base_url="https://api.anthropic.com",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(5, 25, 0.5, 6.25), context_window=1_000_000, max_tokens=128_000,
-        ))
+        all_models.append(
+            _make_model(
+                id="claude-opus-4-6",
+                name="Claude Opus 4.6",
+                api="anthropic-messages",
+                provider="anthropic",
+                base_url="https://api.anthropic.com",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(5, 25, 0.5, 6.25),
+                context_window=1_000_000,
+                max_tokens=128_000,
+            )
+        )
 
     if not _has(all_models, "anthropic", "claude-sonnet-4-6"):
-        all_models.append(_make_model(
-            id="claude-sonnet-4-6", name="Claude Sonnet 4.6",
-            api="anthropic-messages", provider="anthropic",
-            base_url="https://api.anthropic.com",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(3, 15, 0.3, 3.75), context_window=1_000_000, max_tokens=64_000,
-        ))
+        all_models.append(
+            _make_model(
+                id="claude-sonnet-4-6",
+                name="Claude Sonnet 4.6",
+                api="anthropic-messages",
+                provider="anthropic",
+                base_url="https://api.anthropic.com",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(3, 15, 0.3, 3.75),
+                context_window=1_000_000,
+                max_tokens=64_000,
+            )
+        )
 
     if not _has(all_models, "google", "gemini-3.1-flash-lite-preview"):
-        all_models.append(_make_model(
-            id="gemini-3.1-flash-lite-preview", name="Gemini 3.1 Flash Lite Preview",
-            api="google-generative-ai", provider="google",
-            base_url="https://generativelanguage.googleapis.com/v1beta",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(), context_window=1_048_576, max_tokens=65_536,
-        ))
+        all_models.append(
+            _make_model(
+                id="gemini-3.1-flash-lite-preview",
+                name="Gemini 3.1 Flash Lite Preview",
+                api="google-generative-ai",
+                provider="google",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(),
+                context_window=1_048_576,
+                max_tokens=65_536,
+            )
+        )
 
     if not _has(all_models, "openai", "gpt-5-chat-latest"):
-        all_models.append(_make_model(
-            id="gpt-5-chat-latest", name="GPT-5 Chat Latest",
-            api="openai-responses", provider="openai",
-            base_url="https://api.openai.com/v1",
-            reasoning=False, input=["text", "image"],
-            cost=_cost(1.25, 10, 0.125), context_window=128_000, max_tokens=16_384,
-        ))
+        all_models.append(
+            _make_model(
+                id="gpt-5-chat-latest",
+                name="GPT-5 Chat Latest",
+                api="openai-responses",
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+                reasoning=False,
+                input=["text", "image"],
+                cost=_cost(1.25, 10, 0.125),
+                context_window=128_000,
+                max_tokens=16_384,
+            )
+        )
 
     if not _has(all_models, "openai", "gpt-5.1-codex"):
-        all_models.append(_make_model(
-            id="gpt-5.1-codex", name="GPT-5.1 Codex",
-            api="openai-responses", provider="openai",
-            base_url="https://api.openai.com/v1",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(1.25, 5, 0.125, 1.25), context_window=400_000, max_tokens=128_000,
-        ))
+        all_models.append(
+            _make_model(
+                id="gpt-5.1-codex",
+                name="GPT-5.1 Codex",
+                api="openai-responses",
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(1.25, 5, 0.125, 1.25),
+                context_window=400_000,
+                max_tokens=128_000,
+            )
+        )
 
     if not _has(all_models, "openai", "gpt-5.1-codex-max"):
-        all_models.append(_make_model(
-            id="gpt-5.1-codex-max", name="GPT-5.1 Codex Max",
-            api="openai-responses", provider="openai",
-            base_url="https://api.openai.com/v1",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(1.25, 10, 0.125), context_window=400_000, max_tokens=128_000,
-        ))
+        all_models.append(
+            _make_model(
+                id="gpt-5.1-codex-max",
+                name="GPT-5.1 Codex Max",
+                api="openai-responses",
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(1.25, 10, 0.125),
+                context_window=400_000,
+                max_tokens=128_000,
+            )
+        )
 
     if not _has(all_models, "openai", "gpt-5.3-codex-spark"):
-        all_models.append(_make_model(
-            id="gpt-5.3-codex-spark", name="GPT-5.3 Codex Spark",
-            api="openai-responses", provider="openai",
-            base_url="https://api.openai.com/v1",
-            reasoning=True, input=["text"],
-            cost=_cost(), context_window=128_000, max_tokens=16_384,
-        ))
+        all_models.append(
+            _make_model(
+                id="gpt-5.3-codex-spark",
+                name="GPT-5.3 Codex Spark",
+                api="openai-responses",
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+                reasoning=True,
+                input=["text"],
+                cost=_cost(),
+                context_window=128_000,
+                max_tokens=16_384,
+            )
+        )
 
     if not _has(all_models, "openai", "gpt-5.4"):
-        all_models.append(_make_model(
-            id="gpt-5.4", name="GPT-5.4",
-            api="openai-responses", provider="openai",
-            base_url="https://api.openai.com/v1",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(2.5, 15, 0.25), context_window=272_000, max_tokens=128_000,
-        ))
+        all_models.append(
+            _make_model(
+                id="gpt-5.4",
+                name="GPT-5.4",
+                api="openai-responses",
+                provider="openai",
+                base_url="https://api.openai.com/v1",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(2.5, 15, 0.25),
+                context_window=272_000,
+                max_tokens=128_000,
+            )
+        )
 
     # GitHub Copilot GPT-5.3 Codex
     copilot_base = next(
@@ -641,8 +722,7 @@ def _apply_overrides_and_additions(all_models: list[ModelDict]) -> list[ModelDic
             m["contextWindow"] = 204_800
             m["maxTokens"] = 131_072
     all_models = [
-        m for m in all_models
-        if not (m["provider"] in ("minimax", "minimax-cn") and m["id"] not in minimax_direct)
+        m for m in all_models if not (m["provider"] in ("minimax", "minimax-cn") and m["id"] not in minimax_direct)
     ]
 
     # --- OpenAI Codex (ChatGPT OAuth) ---
@@ -650,197 +730,532 @@ def _apply_overrides_and_additions(all_models: list[ModelDict]) -> list[ModelDic
     codex_ctx = 272_000
     codex_max = 128_000
     codex_models = [
-        _make_model(id="gpt-5.1", name="GPT-5.1", api="openai-codex-responses", provider="openai-codex",
-                     base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(1.25, 10, 0.125), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.1-codex-max", name="GPT-5.1 Codex Max", api="openai-codex-responses",
-                     provider="openai-codex", base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(1.25, 10, 0.125), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.1-codex-mini", name="GPT-5.1 Codex Mini", api="openai-codex-responses",
-                     provider="openai-codex", base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(0.25, 2, 0.025), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.2", name="GPT-5.2", api="openai-codex-responses", provider="openai-codex",
-                     base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(1.75, 14, 0.175), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.2-codex", name="GPT-5.2 Codex", api="openai-codex-responses",
-                     provider="openai-codex", base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(1.75, 14, 0.175), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.3-codex", name="GPT-5.3 Codex", api="openai-codex-responses",
-                     provider="openai-codex", base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(1.75, 14, 0.175), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.4", name="GPT-5.4", api="openai-codex-responses", provider="openai-codex",
-                     base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(2.5, 15, 0.25), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.4-mini", name="GPT-5.4 Mini", api="openai-codex-responses",
-                     provider="openai-codex", base_url=codex_base_url, reasoning=True, input=["text", "image"],
-                     cost=_cost(0.75, 4.5, 0.075), context_window=codex_ctx, max_tokens=codex_max),
-        _make_model(id="gpt-5.3-codex-spark", name="GPT-5.3 Codex Spark", api="openai-codex-responses",
-                     provider="openai-codex", base_url=codex_base_url, reasoning=True, input=["text"],
-                     cost=_cost(), context_window=128_000, max_tokens=codex_max),
+        _make_model(
+            id="gpt-5.1",
+            name="GPT-5.1",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(1.25, 10, 0.125),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.1-codex-max",
+            name="GPT-5.1 Codex Max",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(1.25, 10, 0.125),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.1-codex-mini",
+            name="GPT-5.1 Codex Mini",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.25, 2, 0.025),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.2",
+            name="GPT-5.2",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(1.75, 14, 0.175),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.2-codex",
+            name="GPT-5.2 Codex",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(1.75, 14, 0.175),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.3-codex",
+            name="GPT-5.3 Codex",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(1.75, 14, 0.175),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.4",
+            name="GPT-5.4",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(2.5, 15, 0.25),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.4-mini",
+            name="GPT-5.4 Mini",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.75, 4.5, 0.075),
+            context_window=codex_ctx,
+            max_tokens=codex_max,
+        ),
+        _make_model(
+            id="gpt-5.3-codex-spark",
+            name="GPT-5.3 Codex Spark",
+            api="openai-codex-responses",
+            provider="openai-codex",
+            base_url=codex_base_url,
+            reasoning=True,
+            input=["text"],
+            cost=_cost(),
+            context_window=128_000,
+            max_tokens=codex_max,
+        ),
     ]
     all_models.extend(codex_models)
 
     # --- Grok ---
     if not _has(all_models, "xai", "grok-code-fast-1"):
-        all_models.append(_make_model(
-            id="grok-code-fast-1", name="Grok Code Fast 1",
-            api="openai-completions", provider="xai",
-            base_url="https://api.x.ai/v1",
-            reasoning=False, input=["text"],
-            cost=_cost(0.2, 1.5, 0.02), context_window=32_768, max_tokens=8_192,
-        ))
+        all_models.append(
+            _make_model(
+                id="grok-code-fast-1",
+                name="Grok Code Fast 1",
+                api="openai-completions",
+                provider="xai",
+                base_url="https://api.x.ai/v1",
+                reasoning=False,
+                input=["text"],
+                cost=_cost(0.2, 1.5, 0.02),
+                context_window=32_768,
+                max_tokens=8_192,
+            )
+        )
 
     # --- OpenRouter auto ---
     if not _has(all_models, "openrouter", "auto"):
-        all_models.append(_make_model(
-            id="auto", name="Auto",
-            api="openai-completions", provider="openrouter",
-            base_url="https://openrouter.ai/api/v1",
-            reasoning=True, input=["text", "image"],
-            cost=_cost(), context_window=2_000_000, max_tokens=30_000,
-        ))
+        all_models.append(
+            _make_model(
+                id="auto",
+                name="Auto",
+                api="openai-completions",
+                provider="openrouter",
+                base_url="https://openrouter.ai/api/v1",
+                reasoning=True,
+                input=["text", "image"],
+                cost=_cost(),
+                context_window=2_000_000,
+                max_tokens=30_000,
+            )
+        )
 
     # --- Google Cloud Code Assist (Gemini CLI) ---
     cca_url = "https://cloudcode-pa.googleapis.com"
     cca_models = [
-        _make_model(id="gemini-2.5-pro", name="Gemini 2.5 Pro (Cloud Code Assist)",
-                     api="google-gemini-cli", provider="google-gemini-cli", base_url=cca_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(),
-                     context_window=1_048_576, max_tokens=65_535),
-        _make_model(id="gemini-2.5-flash", name="Gemini 2.5 Flash (Cloud Code Assist)",
-                     api="google-gemini-cli", provider="google-gemini-cli", base_url=cca_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(),
-                     context_window=1_048_576, max_tokens=65_535),
-        _make_model(id="gemini-2.0-flash", name="Gemini 2.0 Flash (Cloud Code Assist)",
-                     api="google-gemini-cli", provider="google-gemini-cli", base_url=cca_url,
-                     reasoning=False, input=["text", "image"], cost=_cost(),
-                     context_window=1_048_576, max_tokens=8_192),
-        _make_model(id="gemini-3-pro-preview", name="Gemini 3 Pro Preview (Cloud Code Assist)",
-                     api="google-gemini-cli", provider="google-gemini-cli", base_url=cca_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(),
-                     context_window=1_048_576, max_tokens=65_535),
-        _make_model(id="gemini-3-flash-preview", name="Gemini 3 Flash Preview (Cloud Code Assist)",
-                     api="google-gemini-cli", provider="google-gemini-cli", base_url=cca_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(),
-                     context_window=1_048_576, max_tokens=65_535),
-        _make_model(id="gemini-3.1-pro-preview", name="Gemini 3.1 Pro Preview (Cloud Code Assist)",
-                     api="google-gemini-cli", provider="google-gemini-cli", base_url=cca_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(),
-                     context_window=1_048_576, max_tokens=65_535),
+        _make_model(
+            id="gemini-2.5-pro",
+            name="Gemini 2.5 Pro (Cloud Code Assist)",
+            api="google-gemini-cli",
+            provider="google-gemini-cli",
+            base_url=cca_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
+        _make_model(
+            id="gemini-2.5-flash",
+            name="Gemini 2.5 Flash (Cloud Code Assist)",
+            api="google-gemini-cli",
+            provider="google-gemini-cli",
+            base_url=cca_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
+        _make_model(
+            id="gemini-2.0-flash",
+            name="Gemini 2.0 Flash (Cloud Code Assist)",
+            api="google-gemini-cli",
+            provider="google-gemini-cli",
+            base_url=cca_url,
+            reasoning=False,
+            input=["text", "image"],
+            cost=_cost(),
+            context_window=1_048_576,
+            max_tokens=8_192,
+        ),
+        _make_model(
+            id="gemini-3-pro-preview",
+            name="Gemini 3 Pro Preview (Cloud Code Assist)",
+            api="google-gemini-cli",
+            provider="google-gemini-cli",
+            base_url=cca_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
+        _make_model(
+            id="gemini-3-flash-preview",
+            name="Gemini 3 Flash Preview (Cloud Code Assist)",
+            api="google-gemini-cli",
+            provider="google-gemini-cli",
+            base_url=cca_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
+        _make_model(
+            id="gemini-3.1-pro-preview",
+            name="Gemini 3.1 Pro Preview (Cloud Code Assist)",
+            api="google-gemini-cli",
+            provider="google-gemini-cli",
+            base_url=cca_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
     ]
     all_models.extend(cca_models)
 
     # --- Antigravity ---
     ag_url = "https://daily-cloudcode-pa.sandbox.googleapis.com"
     ag_models = [
-        _make_model(id="gemini-3.1-pro-high", name="Gemini 3.1 Pro High (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(2, 12, 0.2, 2.375),
-                     context_window=1_048_576, max_tokens=65_535),
-        _make_model(id="gemini-3.1-pro-low", name="Gemini 3.1 Pro Low (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(2, 12, 0.2, 2.375),
-                     context_window=1_048_576, max_tokens=65_535),
-        _make_model(id="gemini-3-flash", name="Gemini 3 Flash (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(0.5, 3, 0.5),
-                     context_window=1_048_576, max_tokens=65_535),
-        _make_model(id="claude-sonnet-4-5", name="Claude Sonnet 4.5 (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=False, input=["text", "image"], cost=_cost(3, 15, 0.3, 3.75),
-                     context_window=200_000, max_tokens=64_000),
-        _make_model(id="claude-sonnet-4-5-thinking", name="Claude Sonnet 4.5 Thinking (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(3, 15, 0.3, 3.75),
-                     context_window=200_000, max_tokens=64_000),
-        _make_model(id="claude-opus-4-5-thinking", name="Claude Opus 4.5 Thinking (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(5, 25, 0.5, 6.25),
-                     context_window=200_000, max_tokens=64_000),
-        _make_model(id="claude-opus-4-6-thinking", name="Claude Opus 4.6 Thinking (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(5, 25, 0.5, 6.25),
-                     context_window=200_000, max_tokens=128_000),
-        _make_model(id="claude-sonnet-4-6", name="Claude Sonnet 4.6 (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(3, 15, 0.3, 3.75),
-                     context_window=200_000, max_tokens=64_000),
-        _make_model(id="gpt-oss-120b-medium", name="GPT-OSS 120B Medium (Antigravity)",
-                     api="google-gemini-cli", provider="google-antigravity", base_url=ag_url,
-                     reasoning=False, input=["text"], cost=_cost(0.09, 0.36),
-                     context_window=131_072, max_tokens=32_768),
+        _make_model(
+            id="gemini-3.1-pro-high",
+            name="Gemini 3.1 Pro High (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(2, 12, 0.2, 2.375),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
+        _make_model(
+            id="gemini-3.1-pro-low",
+            name="Gemini 3.1 Pro Low (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(2, 12, 0.2, 2.375),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
+        _make_model(
+            id="gemini-3-flash",
+            name="Gemini 3 Flash (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.5, 3, 0.5),
+            context_window=1_048_576,
+            max_tokens=65_535,
+        ),
+        _make_model(
+            id="claude-sonnet-4-5",
+            name="Claude Sonnet 4.5 (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=False,
+            input=["text", "image"],
+            cost=_cost(3, 15, 0.3, 3.75),
+            context_window=200_000,
+            max_tokens=64_000,
+        ),
+        _make_model(
+            id="claude-sonnet-4-5-thinking",
+            name="Claude Sonnet 4.5 Thinking (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(3, 15, 0.3, 3.75),
+            context_window=200_000,
+            max_tokens=64_000,
+        ),
+        _make_model(
+            id="claude-opus-4-5-thinking",
+            name="Claude Opus 4.5 Thinking (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(5, 25, 0.5, 6.25),
+            context_window=200_000,
+            max_tokens=64_000,
+        ),
+        _make_model(
+            id="claude-opus-4-6-thinking",
+            name="Claude Opus 4.6 Thinking (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(5, 25, 0.5, 6.25),
+            context_window=200_000,
+            max_tokens=128_000,
+        ),
+        _make_model(
+            id="claude-sonnet-4-6",
+            name="Claude Sonnet 4.6 (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(3, 15, 0.3, 3.75),
+            context_window=200_000,
+            max_tokens=64_000,
+        ),
+        _make_model(
+            id="gpt-oss-120b-medium",
+            name="GPT-OSS 120B Medium (Antigravity)",
+            api="google-gemini-cli",
+            provider="google-antigravity",
+            base_url=ag_url,
+            reasoning=False,
+            input=["text"],
+            cost=_cost(0.09, 0.36),
+            context_window=131_072,
+            max_tokens=32_768,
+        ),
     ]
     all_models.extend(ag_models)
 
     # --- Google Vertex ---
     vertex_url = "https://{location}-aiplatform.googleapis.com"
     vertex_models = [
-        _make_model(id="gemini-3-pro-preview", name="Gemini 3 Pro Preview (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(2, 12, 0.2),
-                     context_window=1_000_000, max_tokens=64_000),
-        _make_model(id="gemini-3.1-pro-preview", name="Gemini 3.1 Pro Preview (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(2, 12, 0.2),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-3.1-pro-preview-customtools", name="Gemini 3.1 Pro Preview Custom Tools (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(2, 12, 0.2),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-3-flash-preview", name="Gemini 3 Flash Preview (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(0.5, 3, 0.05),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-2.0-flash", name="Gemini 2.0 Flash (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=False, input=["text", "image"], cost=_cost(0.15, 0.6, 0.0375),
-                     context_window=1_048_576, max_tokens=8_192),
-        _make_model(id="gemini-2.0-flash-lite", name="Gemini 2.0 Flash Lite (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(0.075, 0.3, 0.01875),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-2.5-pro", name="Gemini 2.5 Pro (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(1.25, 10, 0.125),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-2.5-flash", name="Gemini 2.5 Flash (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(0.3, 2.5, 0.03),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-2.5-flash-lite-preview-09-2025", name="Gemini 2.5 Flash Lite Preview 09-25 (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(0.1, 0.4, 0.01),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-2.5-flash-lite", name="Gemini 2.5 Flash Lite (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=True, input=["text", "image"], cost=_cost(0.1, 0.4, 0.01),
-                     context_window=1_048_576, max_tokens=65_536),
-        _make_model(id="gemini-1.5-pro", name="Gemini 1.5 Pro (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=False, input=["text", "image"], cost=_cost(1.25, 5, 0.3125),
-                     context_window=1_000_000, max_tokens=8_192),
-        _make_model(id="gemini-1.5-flash", name="Gemini 1.5 Flash (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=False, input=["text", "image"], cost=_cost(0.075, 0.3, 0.01875),
-                     context_window=1_000_000, max_tokens=8_192),
-        _make_model(id="gemini-1.5-flash-8b", name="Gemini 1.5 Flash-8B (Vertex)",
-                     api="google-vertex", provider="google-vertex", base_url=vertex_url,
-                     reasoning=False, input=["text", "image"], cost=_cost(0.0375, 0.15, 0.01),
-                     context_window=1_000_000, max_tokens=8_192),
+        _make_model(
+            id="gemini-3-pro-preview",
+            name="Gemini 3 Pro Preview (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(2, 12, 0.2),
+            context_window=1_000_000,
+            max_tokens=64_000,
+        ),
+        _make_model(
+            id="gemini-3.1-pro-preview",
+            name="Gemini 3.1 Pro Preview (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(2, 12, 0.2),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-3.1-pro-preview-customtools",
+            name="Gemini 3.1 Pro Preview Custom Tools (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(2, 12, 0.2),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-3-flash-preview",
+            name="Gemini 3 Flash Preview (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.5, 3, 0.05),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-2.0-flash",
+            name="Gemini 2.0 Flash (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=False,
+            input=["text", "image"],
+            cost=_cost(0.15, 0.6, 0.0375),
+            context_window=1_048_576,
+            max_tokens=8_192,
+        ),
+        _make_model(
+            id="gemini-2.0-flash-lite",
+            name="Gemini 2.0 Flash Lite (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.075, 0.3, 0.01875),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-2.5-pro",
+            name="Gemini 2.5 Pro (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(1.25, 10, 0.125),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-2.5-flash",
+            name="Gemini 2.5 Flash (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.3, 2.5, 0.03),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-2.5-flash-lite-preview-09-2025",
+            name="Gemini 2.5 Flash Lite Preview 09-25 (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.1, 0.4, 0.01),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-2.5-flash-lite",
+            name="Gemini 2.5 Flash Lite (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=True,
+            input=["text", "image"],
+            cost=_cost(0.1, 0.4, 0.01),
+            context_window=1_048_576,
+            max_tokens=65_536,
+        ),
+        _make_model(
+            id="gemini-1.5-pro",
+            name="Gemini 1.5 Pro (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=False,
+            input=["text", "image"],
+            cost=_cost(1.25, 5, 0.3125),
+            context_window=1_000_000,
+            max_tokens=8_192,
+        ),
+        _make_model(
+            id="gemini-1.5-flash",
+            name="Gemini 1.5 Flash (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=False,
+            input=["text", "image"],
+            cost=_cost(0.075, 0.3, 0.01875),
+            context_window=1_000_000,
+            max_tokens=8_192,
+        ),
+        _make_model(
+            id="gemini-1.5-flash-8b",
+            name="Gemini 1.5 Flash-8B (Vertex)",
+            api="google-vertex",
+            provider="google-vertex",
+            base_url=vertex_url,
+            reasoning=False,
+            input=["text", "image"],
+            cost=_cost(0.0375, 0.15, 0.01),
+            context_window=1_000_000,
+            max_tokens=8_192,
+        ),
     ]
     all_models.extend(vertex_models)
 
     # --- Kimi For Coding static fallback ---
     kimi_url = "https://api.kimi.com/coding"
     kimi_fallback = [
-        _make_model(id="kimi-k2-thinking", name="Kimi K2 Thinking",
-                     api="anthropic-messages", provider="kimi-coding", base_url=kimi_url,
-                     reasoning=True, input=["text"], cost=_cost(),
-                     context_window=262_144, max_tokens=32_768),
-        _make_model(id="k2p5", name="Kimi K2.5",
-                     api="anthropic-messages", provider="kimi-coding", base_url=kimi_url,
-                     reasoning=True, input=["text"], cost=_cost(),
-                     context_window=262_144, max_tokens=32_768),
+        _make_model(
+            id="kimi-k2-thinking",
+            name="Kimi K2 Thinking",
+            api="anthropic-messages",
+            provider="kimi-coding",
+            base_url=kimi_url,
+            reasoning=True,
+            input=["text"],
+            cost=_cost(),
+            context_window=262_144,
+            max_tokens=32_768,
+        ),
+        _make_model(
+            id="k2p5",
+            name="Kimi K2.5",
+            api="anthropic-messages",
+            provider="kimi-coding",
+            base_url=kimi_url,
+            reasoning=True,
+            input=["text"],
+            cost=_cost(),
+            context_window=262_144,
+            max_tokens=32_768,
+        ),
     ]
     for km in kimi_fallback:
         if not _has(all_models, "kimi-coding", km["id"]):
@@ -913,9 +1328,7 @@ def main() -> None:
 
     # Statistics
     total = sum(len(models) for models in catalog.values())
-    reasoning = sum(
-        1 for models in catalog.values() for m in models.values() if m["reasoning"]
-    )
+    reasoning = sum(1 for models in catalog.values() for m in models.values() if m["reasoning"])
     print("\nModel Statistics:")
     print(f"  Total tool-capable models: {total}")
     print(f"  Reasoning-capable models: {reasoning}")

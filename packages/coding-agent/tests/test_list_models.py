@@ -8,7 +8,6 @@ from unittest.mock import MagicMock
 
 from nu_coding_agent.list_models import _format_token_count, list_models
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -99,7 +98,7 @@ class TestListModels:
         registry = _make_registry(models)
         list_models(registry)
         out = capsys.readouterr().out
-        lines = [l for l in out.strip().splitlines() if l.strip()]
+        lines = [line for line in out.strip().splitlines() if line.strip()]
         # Header + 2 rows
         assert len(lines) == 3
         # a-provider should come first

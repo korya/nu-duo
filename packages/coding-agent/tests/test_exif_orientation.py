@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import struct
 
-from PIL import Image
-
 from nu_coding_agent.utils.exif_orientation import (
     _ORIENTATION_TAG,
     _find_jpeg_tiff_offset,
@@ -15,11 +13,12 @@ from nu_coding_agent.utils.exif_orientation import (
     apply_exif_orientation,
     get_exif_orientation,
 )
-
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # Helpers to build synthetic EXIF data
 # ---------------------------------------------------------------------------
+
 
 def _build_tiff_with_orientation(orientation: int, big_endian: bool = False) -> bytes:
     """Build a minimal TIFF header with a single IFD entry for orientation."""
@@ -75,6 +74,7 @@ def _build_webp_with_orientation(orientation: int) -> bytes:
 # _has_exif_header
 # ---------------------------------------------------------------------------
 
+
 class TestHasExifHeader:
     def test_valid(self) -> None:
         data = b"Exif\x00\x00more"
@@ -91,6 +91,7 @@ class TestHasExifHeader:
 # ---------------------------------------------------------------------------
 # _read_orientation_from_tiff
 # ---------------------------------------------------------------------------
+
 
 class TestReadOrientationFromTiff:
     def test_little_endian(self) -> None:
@@ -133,6 +134,7 @@ class TestReadOrientationFromTiff:
 # get_exif_orientation (JPEG)
 # ---------------------------------------------------------------------------
 
+
 class TestGetExifOrientationJpeg:
     def test_orientation_6(self) -> None:
         jpeg = _build_jpeg_with_orientation(6)
@@ -161,6 +163,7 @@ class TestGetExifOrientationJpeg:
 # get_exif_orientation (WebP)
 # ---------------------------------------------------------------------------
 
+
 class TestGetExifOrientationWebp:
     def test_orientation_3(self) -> None:
         webp = _build_webp_with_orientation(3)
@@ -174,6 +177,7 @@ class TestGetExifOrientationWebp:
 # ---------------------------------------------------------------------------
 # _find_jpeg_tiff_offset
 # ---------------------------------------------------------------------------
+
 
 class TestFindJpegTiffOffset:
     def test_finds_offset(self) -> None:
@@ -229,6 +233,7 @@ class TestFindJpegTiffOffset:
 # _find_webp_tiff_offset
 # ---------------------------------------------------------------------------
 
+
 class TestFindWebpTiffOffset:
     def test_finds_offset(self) -> None:
         webp = _build_webp_with_orientation(5)
@@ -246,6 +251,7 @@ class TestFindWebpTiffOffset:
 # ---------------------------------------------------------------------------
 # apply_exif_orientation
 # ---------------------------------------------------------------------------
+
 
 class TestApplyExifOrientation:
     def test_orientation_1_returns_same(self) -> None:

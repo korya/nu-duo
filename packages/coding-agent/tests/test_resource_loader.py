@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
-import pytest
-
 from nu_coding_agent.core.resource_loader import (
-    ContextFile,
     ResourceLoader,
     ResourceLoaderOptions,
-    ThemeInfo,
     _expand_tilde,
     _load_context_file_from_dir,
     _load_theme_from_file,
@@ -21,7 +16,6 @@ from nu_coding_agent.core.resource_loader import (
     _resolve_path,
     load_project_context_files,
 )
-
 
 # ---------------------------------------------------------------------------
 # Path helpers
@@ -138,7 +132,7 @@ class TestLoadThemeFromFile:
     def test_no_name_in_json(self, tmp_path: Path) -> None:
         f = tmp_path / "my-theme.json"
         f.write_text(json.dumps({"colors": {}}))
-        theme, diag = _load_theme_from_file(str(f), "user")
+        theme, _diag = _load_theme_from_file(str(f), "user")
         assert theme is not None
         assert theme.name == "my-theme"  # falls back to stem
 
@@ -229,7 +223,7 @@ class TestResourceLoader:
 
         loader = ResourceLoader(ResourceLoaderOptions(cwd=str(cwd), agent_dir=str(agent_dir)))
         loader.reload()
-        themes, diags = loader.get_themes()
+        themes, _diags = loader.get_themes()
         assert len(themes) == 1
         assert themes[0].name == "Cool"
 
@@ -299,11 +293,13 @@ class TestResourceLoader:
         cwd = tmp_path / "project"
         cwd.mkdir()
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            system_prompt="Custom prompt",
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                system_prompt="Custom prompt",
+            )
+        )
         loader.reload()
         assert loader.get_system_prompt() == "Custom prompt"
 
@@ -329,11 +325,13 @@ class TestResourceLoader:
         extra_theme = tmp_path / "extra.json"
         extra_theme.write_text(json.dumps({"name": "Extra"}))
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            additional_theme_paths=[str(extra_theme)],
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                additional_theme_paths=[str(extra_theme)],
+            )
+        )
         loader.reload()
         themes, _ = loader.get_themes()
         assert any(t.name == "Extra" for t in themes)
@@ -344,11 +342,13 @@ class TestResourceLoader:
         cwd = tmp_path / "project"
         cwd.mkdir()
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            additional_theme_paths=["/nonexistent/theme.json"],
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                additional_theme_paths=["/nonexistent/theme.json"],
+            )
+        )
         loader.reload()
         _, diags = loader.get_themes()
         assert any("does not exist" in d.message for d in diags)
@@ -374,11 +374,13 @@ class TestResourceLoader:
         theme_dir.mkdir()
         (theme_dir / "dark.json").write_text(json.dumps({"name": "Dark"}))
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            additional_theme_paths=[str(theme_dir)],
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                additional_theme_paths=[str(theme_dir)],
+            )
+        )
         loader.reload()
         themes, _ = loader.get_themes()
         assert any(t.name == "Dark" for t in themes)
@@ -392,11 +394,13 @@ class TestResourceLoader:
         txt_file = tmp_path / "not_theme.txt"
         txt_file.write_text("not a theme")
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            additional_theme_paths=[str(txt_file)],
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                additional_theme_paths=[str(txt_file)],
+            )
+        )
         loader.reload()
         _, diags = loader.get_themes()
         assert any("not a JSON file" in d.message for d in diags)
@@ -407,9 +411,7 @@ class TestResourceLoader:
         cwd = tmp_path / "project"
         cwd.mkdir()
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd), agent_dir=str(agent_dir), no_skills=True
-        ))
+        loader = ResourceLoader(ResourceLoaderOptions(cwd=str(cwd), agent_dir=str(agent_dir), no_skills=True))
         loader.reload()
         skills, diags = loader.get_skills()
         assert skills == []
@@ -421,9 +423,7 @@ class TestResourceLoader:
         cwd = tmp_path / "project"
         cwd.mkdir()
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd), agent_dir=str(agent_dir), no_prompts=True
-        ))
+        loader = ResourceLoader(ResourceLoaderOptions(cwd=str(cwd), agent_dir=str(agent_dir), no_prompts=True))
         loader.reload()
         prompts, diags = loader.get_prompts()
         assert prompts == []
@@ -452,11 +452,13 @@ class TestResourceLoader:
         extra_ext = tmp_path / "my_ext.py"
         extra_ext.write_text("# ext")
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            additional_extension_paths=[str(extra_ext)],
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                additional_extension_paths=[str(extra_ext)],
+            )
+        )
         loader.reload()
         paths = loader.get_extension_paths()
         assert str(extra_ext) in paths
@@ -470,14 +472,17 @@ class TestResourceLoader:
 class TestIsUnder:
     def test_target_equals_root(self) -> None:
         from nu_coding_agent.core.resource_loader import _is_under  # pyright: ignore[reportPrivateUsage]
+
         assert _is_under("/foo/bar", "/foo/bar") is True
 
     def test_target_under_root(self) -> None:
         from nu_coding_agent.core.resource_loader import _is_under  # pyright: ignore[reportPrivateUsage]
+
         assert _is_under("/foo/bar/baz", "/foo/bar") is True
 
     def test_target_not_under_root(self) -> None:
         from nu_coding_agent.core.resource_loader import _is_under  # pyright: ignore[reportPrivateUsage]
+
         assert _is_under("/foo/baz", "/foo/bar") is False
 
 
@@ -536,12 +541,11 @@ class TestLoadThemesDirOSError:
         """Entries that aren't files (e.g. directories with .json suffix) are skipped (lines 202-205)."""
         subdir = tmp_path / "subdir.json"
         subdir.mkdir()
-        themes, diags = _load_themes_from_dir(str(tmp_path), "user")
+        themes, _diags = _load_themes_from_dir(str(tmp_path), "user")
         assert themes == []
 
     def test_entry_oserror_on_is_file(self, tmp_path: Path) -> None:
         """When is_file() raises OSError, continue (lines 203-205)."""
-        from unittest.mock import patch, PropertyMock
         f = tmp_path / "bad.json"
         f.write_text('{"name": "bad"}')
         # Can't easily make is_file raise, but the subdir.json test above covers 202-203.
@@ -562,6 +566,7 @@ class TestLoadThemesDirOSError:
 class TestDiscoverPromptFile:
     def test_finds_in_agent_dir(self, tmp_path: Path) -> None:
         from nu_coding_agent.core.resource_loader import _discover_prompt_file  # pyright: ignore[reportPrivateUsage]
+
         cwd = tmp_path / "project"
         cwd.mkdir()
         agent_dir = tmp_path / "agent"
@@ -573,6 +578,7 @@ class TestDiscoverPromptFile:
 
     def test_not_found(self, tmp_path: Path) -> None:
         from nu_coding_agent.core.resource_loader import _discover_prompt_file  # pyright: ignore[reportPrivateUsage]
+
         cwd = tmp_path / "project"
         cwd.mkdir()
         agent_dir = tmp_path / "agent"
@@ -589,6 +595,7 @@ class TestDiscoverPromptFile:
 class TestResolvePromptInput:
     def test_reads_file(self, tmp_path: Path) -> None:
         from nu_coding_agent.core.resource_loader import _resolve_prompt_input  # pyright: ignore[reportPrivateUsage]
+
         f = tmp_path / "prompt.txt"
         f.write_text("prompt content")
         result = _resolve_prompt_input(str(f))
@@ -596,11 +603,13 @@ class TestResolvePromptInput:
 
     def test_returns_string_if_not_file(self) -> None:
         from nu_coding_agent.core.resource_loader import _resolve_prompt_input  # pyright: ignore[reportPrivateUsage]
+
         result = _resolve_prompt_input("Just a string")
         assert result == "Just a string"
 
     def test_returns_none_for_empty(self) -> None:
         from nu_coding_agent.core.resource_loader import _resolve_prompt_input  # pyright: ignore[reportPrivateUsage]
+
         assert _resolve_prompt_input(None) is None
         assert _resolve_prompt_input("") is None
 
@@ -642,11 +651,13 @@ class TestLoadSkillsMissingPath:
         cwd = tmp_path / "project"
         cwd.mkdir()
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            additional_skill_paths=["/nonexistent/skill/path"],
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                additional_skill_paths=["/nonexistent/skill/path"],
+            )
+        )
         loader.reload()
         _, diags = loader.get_skills()
         assert any("does not exist" in d.message for d in diags)
@@ -668,11 +679,13 @@ class TestLoadThemesAdditionalOSError:
         theme_dir.mkdir()
         theme_dir.chmod(0o000)
         try:
-            loader = ResourceLoader(ResourceLoaderOptions(
-                cwd=str(cwd),
-                agent_dir=str(agent_dir),
-                additional_theme_paths=[str(theme_dir)],
-            ))
+            loader = ResourceLoader(
+                ResourceLoaderOptions(
+                    cwd=str(cwd),
+                    agent_dir=str(agent_dir),
+                    additional_theme_paths=[str(theme_dir)],
+                )
+            )
             loader.reload()
             _, diags = loader.get_themes()
             # Should get a warning diagnostic about the OSError
@@ -693,11 +706,13 @@ class TestLoadPromptsMissingPath:
         cwd = tmp_path / "project"
         cwd.mkdir()
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-            additional_prompt_paths=["/nonexistent/prompt/path"],
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+                additional_prompt_paths=["/nonexistent/prompt/path"],
+            )
+        )
         loader.reload()
         _, diags = loader.get_prompts()
         assert any("does not exist" in d.message for d in diags)
@@ -725,10 +740,12 @@ class TestLoadPromptsCollision:
         agent_prompts.mkdir(parents=True)
         (agent_prompts / "greet.md").write_text("---\nname: greet\n---\nHello from agent")
 
-        loader = ResourceLoader(ResourceLoaderOptions(
-            cwd=str(cwd),
-            agent_dir=str(agent_dir),
-        ))
+        loader = ResourceLoader(
+            ResourceLoaderOptions(
+                cwd=str(cwd),
+                agent_dir=str(agent_dir),
+            )
+        )
         loader.reload()
         prompts, diags = loader.get_prompts()
         # There should be exactly one prompt named "greet" and a collision diagnostic

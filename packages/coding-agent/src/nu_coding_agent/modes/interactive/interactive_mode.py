@@ -940,7 +940,10 @@ Type `/help` to see all slash commands.
                 result = await _aio.to_thread(
                     _sp.run,
                     ["gh", "gist", "create", "--public", "-f", "session.html", tmp],
-                    capture_output=True, text=True, timeout=30, check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=False,
                 )
                 if result.returncode == 0:
                     gist_url = result.stdout.strip()
@@ -1008,7 +1011,9 @@ Type `/help` to see all slash commands.
                     break
 
             # Create new session manager and replay kept entries
-            new_session = SessionManager(cwd=sm.get_cwd(), session_dir=sm.get_session_dir(), session_file=None, persist=True)
+            new_session = SessionManager(
+                cwd=sm.get_cwd(), session_dir=sm.get_session_dir(), session_file=None, persist=True
+            )
             for e in kept:
                 if e.get("type") == "session":
                     continue
@@ -1134,6 +1139,7 @@ Type `/help` to see all slash commands.
         def _sigint_for_bash(sig: int, frame: object) -> None:
             """Kill only the child process group; keep nu alive."""
             import os as _os  # noqa: PLC0415
+
             if self._bash_proc is not None:
                 proc_ref = self._bash_proc
                 self._bash_proc = None
@@ -1177,6 +1183,7 @@ Type `/help` to see all slash commands.
                     widget.set_output("".join(output_chunks))
                     with contextlib.suppress(Exception):
                         import os as _os2  # noqa: PLC0415
+
                         _os2.killpg(proc.pid, signal.SIGTERM)
                     with contextlib.suppress(Exception):
                         proc.stdout.close()

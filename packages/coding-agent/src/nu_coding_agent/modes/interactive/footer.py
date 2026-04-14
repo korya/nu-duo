@@ -144,7 +144,7 @@ class InteractiveFooter(Static):
         # --- CWD ---
         cwd = self._session.cwd
         home = os.path.expanduser("~")
-        display_cwd = "~" + cwd[len(home):] if cwd.startswith(home) else cwd
+        display_cwd = "~" + cwd[len(home) :] if cwd.startswith(home) else cwd
         t.append_text(sep)
         t.append(display_cwd, style="dim")
 
@@ -194,7 +194,9 @@ class InteractiveFooter(Static):
                 total_cache_write += getattr(usage, "cache_write", 0)
                 cost_obj = getattr(usage, "cost", None)
                 if cost_obj is not None:
-                    total_cost += getattr(cost_obj, "total", 0.0) if not isinstance(cost_obj, (int, float)) else cost_obj
+                    total_cost += (
+                        getattr(cost_obj, "total", 0.0) if not isinstance(cost_obj, (int, float)) else cost_obj
+                    )
 
         # Try to get context window from current model
         model = self._session.model

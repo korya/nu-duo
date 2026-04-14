@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # migrations.py — lines 69-70, 85-86, 142-143, 161-162, 191-192,
@@ -234,7 +233,7 @@ class TestResourceLoaderCoverageGaps:
         (dir1 / "dark.json").write_text(json.dumps({"name": "dark", "colors": {}}))
         (dir2 / "light.json").write_text(json.dumps({"name": "light", "colors": {}}))
         loader = self._make_loader(tmp_path, additional_theme_paths=[str(dir1), str(dir2)])
-        themes, diags = loader.get_themes()
+        themes, _diags = loader.get_themes()
         names = {t.name for t in themes}
         assert "dark" in names
         assert "light" in names
@@ -248,14 +247,14 @@ class TestResourceLoaderCoverageGaps:
         (dir1 / "greet.md").write_text("---\nname: greet\n---\nHello")
         (dir2 / "greet.md").write_text("---\nname: greet\n---\nHi")
         loader = self._make_loader(tmp_path, additional_prompt_paths=[str(dir1), str(dir2)])
-        prompts, diags = loader.get_prompts()
+        _prompts, diags = loader.get_prompts()
         collision_diags = [d for d in diags if d.type == "collision"]
         assert len(collision_diags) >= 1
 
     def test_missing_additional_prompt_path(self, tmp_path: Path) -> None:
         """Lines 441-443: missing additional prompt path produces error diagnostic."""
         loader = self._make_loader(tmp_path, additional_prompt_paths=[str(tmp_path / "nonexistent")])
-        prompts, diags = loader.get_prompts()
+        _prompts, diags = loader.get_prompts()
         error_diags = [d for d in diags if d.type == "error"]
         assert len(error_diags) >= 1
 

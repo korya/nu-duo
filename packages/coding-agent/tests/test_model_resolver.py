@@ -445,7 +445,6 @@ def test_is_alias_with_latest_suffix() -> None:
 
 def test_exact_match_ambiguous_canonical(registry_with_keys: ModelRegistry) -> None:
     """When multiple models have the same canonical key, return None."""
-    from nu_ai.types import Model
 
     models = registry_with_keys.get_all()
     # Duplicate the first model so canonical lookup is ambiguous
@@ -562,7 +561,7 @@ def test_resolve_scope_pattern_with_warning(registry_with_keys: ModelRegistry) -
 
 def test_resolve_cli_model_no_models(empty_registry: ModelRegistry, monkeypatch: pytest.MonkeyPatch) -> None:
     """When get_all() returns empty list, error about no models available."""
-    monkeypatch.setattr(empty_registry, "get_all", lambda: [])
+    monkeypatch.setattr(empty_registry, "get_all", list)
     result = resolve_cli_model(cli_provider=None, cli_model="anything", model_registry=empty_registry)
     assert result.error is not None
     assert "No models available" in result.error

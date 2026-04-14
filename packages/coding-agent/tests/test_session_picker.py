@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from nu_coding_agent.session_picker import _SessionPickerApp, select_session
 
 

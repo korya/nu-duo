@@ -110,8 +110,7 @@ class RpcClient:
         cli = self._options.cli_path or shutil.which("nu")
         if cli is None:
             raise RpcClientError(
-                "Cannot find 'nu' CLI.  Pass cli_path in RpcClientOptions "
-                "or ensure 'nu' is on the PATH."
+                "Cannot find 'nu' CLI.  Pass cli_path in RpcClientOptions or ensure 'nu' is on the PATH."
             )
 
         argv: list[str] = [cli, "--rpc"]
@@ -424,6 +423,7 @@ class RpcClient:
         Raises:
             asyncio.TimeoutError: If the agent does not become idle in *timeout* seconds.
         """
+
         async def _poll() -> None:
             while True:
                 state = await self.get_state()
@@ -467,9 +467,7 @@ class RpcClient:
                 # Final check via state — maybe we missed the event.
                 state = await self.get_state()
                 if state.get("isStreaming", False):
-                    raise TimeoutError(
-                        f"Agent did not finish within {max_wait}s"
-                    ) from None
+                    raise TimeoutError(f"Agent did not finish within {max_wait}s") from None
         finally:
             unsub()
 

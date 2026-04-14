@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -500,14 +499,19 @@ def _build_config_groups(resolved: dict[str, Any]) -> list[ResourceGroup]:
                 else:
                     label = "User settings" if scope == "user" else "Project settings"
                 group_map[group_key] = ResourceGroup(
-                    key=group_key, label=label, scope=scope, origin=origin, source=source,
+                    key=group_key,
+                    label=label,
+                    scope=scope,
+                    origin=origin,
+                    source=source,
                 )
 
             group = group_map[group_key]
             subgroup = next((sg for sg in group.subgroups if sg.resource_type == rtype), None)
             if subgroup is None:
                 subgroup = ResourceSubgroup(
-                    resource_type=rtype, label=_RESOURCE_TYPE_LABELS.get(rtype, rtype),
+                    resource_type=rtype,
+                    label=_RESOURCE_TYPE_LABELS.get(rtype, rtype),
                 )
                 group.subgroups.append(subgroup)
 
@@ -522,9 +526,14 @@ def _build_config_groups(resolved: dict[str, Any]) -> list[ResourceGroup]:
 
             subgroup.items.append(
                 ResourceItem(
-                    path=path, enabled=enabled, resource_type=rtype,
-                    display_name=display_name, group_key=group_key,
-                    scope=scope, origin=origin, source=source,
+                    path=path,
+                    enabled=enabled,
+                    resource_type=rtype,
+                    display_name=display_name,
+                    group_key=group_key,
+                    scope=scope,
+                    origin=origin,
+                    source=source,
                 ),
             )
 
@@ -661,11 +670,7 @@ class ConfigSelectorScreen(ModalScreen[None]):
         for entry in self._flat:
             if isinstance(entry, _FlatItem):
                 it = entry.item
-                if (
-                    lq in it.display_name.lower()
-                    or lq in it.resource_type.lower()
-                    or lq in it.path.lower()
-                ):
+                if lq in it.display_name.lower() or lq in it.resource_type.lower() or lq in it.path.lower():
                     matching_items.add(it.path)
 
         # Include group/subgroup headers that contain matching items
@@ -680,7 +685,11 @@ class ConfigSelectorScreen(ModalScreen[None]):
 
         self._filtered = []
         for entry in self._flat:
-            if (isinstance(entry, _FlatGroup) and entry.group.key in matching_group_keys) or (isinstance(entry, _FlatSubgroup) and id(entry.subgroup) in matching_subgroups) or (isinstance(entry, _FlatItem) and entry.item.path in matching_items):
+            if (
+                (isinstance(entry, _FlatGroup) and entry.group.key in matching_group_keys)
+                or (isinstance(entry, _FlatSubgroup) and id(entry.subgroup) in matching_subgroups)
+                or (isinstance(entry, _FlatItem) and entry.item.path in matching_items)
+            ):
                 self._filtered.append(entry)
 
         self._selected_index = self._first_item_index(self._filtered)
@@ -838,9 +847,7 @@ class ScopedModelsSelectorScreen(ModalScreen["list[str] | None"]):
         # all_models: list of dicts with "id", "provider", "name"
         self._all_models = all_models
         self._all_ids = [f"{m['provider']}/{m['id']}" for m in all_models]
-        self._models_by_id: dict[str, dict[str, str]] = {
-            f"{m['provider']}/{m['id']}": m for m in all_models
-        }
+        self._models_by_id: dict[str, dict[str, str]] = {f"{m['provider']}/{m['id']}": m for m in all_models}
         # None means "all enabled" (no filter)
         self._enabled_ids: list[str] | None = list(enabled_ids) if enabled_ids is not None else None
         self._filtered: list[dict[str, Any]] = []
@@ -882,7 +889,8 @@ class ScopedModelsSelectorScreen(ModalScreen["list[str] | None"]):
         items = self._build_items()
         if query.strip():
             items = [
-                it for it in items
+                it
+                for it in items
                 if _fuzzy_match(query.strip(), f"{it['model'].get('id', '')} {it['model'].get('provider', '')}")
             ]
         self._filtered = items

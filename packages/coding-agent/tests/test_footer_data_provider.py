@@ -2,23 +2,18 @@
 
 from __future__ import annotations
 
-import os
-import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from nu_coding_agent.core.footer_data_provider import (
     FooterDataProvider,
     ReadonlyFooterDataProvider,
+    _find_git_paths,
     _GitPaths,
     _HeadWatcher,
-    _find_git_paths,
     _read_branch_from_head,
     _resolve_branch_with_git_sync,
 )
-
 
 # ---------------------------------------------------------------------------
 # _find_git_paths
@@ -242,7 +237,7 @@ class TestFooterDataProvider:
         provider = FooterDataProvider(cwd=str(tmp_path))
         try:
             received: list[str | None] = []
-            unsub = provider.on_branch_change(lambda b: received.append(b))
+            unsub = provider.on_branch_change(received.append)
 
             # Trigger set_cwd to same dir (should be no-op)
             provider.set_cwd(str(tmp_path))
@@ -316,7 +311,7 @@ class TestReadonlyFooterDataProvider:
             assert ro.get_available_provider_count() == 2
 
             received: list[str | None] = []
-            unsub = ro.on_branch_change(lambda b: received.append(b))
+            unsub = ro.on_branch_change(received.append)
             unsub()  # just verify it returns a callable
         finally:
             provider.dispose()
@@ -417,7 +412,7 @@ class TestFooterScheduleRefresh:
             assert provider.get_git_branch() == "main"
 
             received: list[str | None] = []
-            provider.on_branch_change(lambda b: received.append(b))
+            provider.on_branch_change(received.append)
 
             # Change HEAD then do refresh
             (git_dir / "HEAD").write_text("ref: refs/heads/feature\n")
@@ -435,7 +430,7 @@ class TestFooterScheduleRefresh:
         try:
             assert provider.get_git_branch() == "main"
             received: list[str | None] = []
-            provider.on_branch_change(lambda b: received.append(b))
+            provider.on_branch_change(received.append)
             provider._do_refresh()
             # Same branch, no callback
             assert received == []
@@ -449,6 +444,7 @@ class TestFooterScheduleRefresh:
 
         provider = FooterDataProvider(cwd=str(tmp_path))
         try:
+
             def bad_callback(b: str | None) -> None:
                 raise RuntimeError("boom")
 

@@ -81,7 +81,7 @@ def _stub_operations(
         command: str,
         cwd: str,
         on_data: Callable[[bytes], None],
-        timeout: float | None = None,  # noqa: ASYNC109
+        timeout: float | None = None,
         env: dict[str, str] | None = None,
         abort_event: asyncio.Event | None = None,
     ) -> int | None:
@@ -138,7 +138,7 @@ async def test_execute_bash_explicit_operations_override_local() -> None:
         command: str,
         cwd: str,
         on_data: Callable[[bytes], None],
-        timeout: float | None = None,  # noqa: ASYNC109
+        timeout: float | None = None,
         env: dict[str, str] | None = None,
         abort_event: asyncio.Event | None = None,
     ) -> int | None:
@@ -193,7 +193,7 @@ async def test_chunk_eviction_on_huge_output(tmp_path: Path) -> None:
         command: str,
         cwd: str,
         on_data: Callable[[bytes], None],
-        timeout: float | None = None,  # noqa: ASYNC109
+        timeout: float | None = None,
         env: dict[str, str] | None = None,
         abort_event: asyncio.Event | None = None,
     ) -> int | None:

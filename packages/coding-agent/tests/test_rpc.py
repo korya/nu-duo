@@ -15,8 +15,13 @@ import json
 from typing import Any
 
 import pytest
-
 from nu_coding_agent.modes.rpc.jsonl import serialize_json_line
+from nu_coding_agent.modes.rpc.rpc_client import (
+    ModelInfo,
+    RpcClient,
+    RpcClientError,
+    RpcClientOptions,
+)
 from nu_coding_agent.modes.rpc.rpc_mode import _create_extension_ui_context, _error, _success
 from nu_coding_agent.modes.rpc.rpc_types import RpcSessionState, RpcSlashCommand
 
@@ -311,14 +316,6 @@ class TestExtensionUIContext:
 # ---------------------------------------------------------------------------
 
 
-from nu_coding_agent.modes.rpc.rpc_client import (
-    ModelInfo,
-    RpcClient,
-    RpcClientError,
-    RpcClientOptions,
-)
-
-
 class TestRpcClientOptions:
     def test_defaults(self) -> None:
         opts = RpcClientOptions()
@@ -341,23 +338,25 @@ class TestRpcClientStart:
     async def test_start_no_cli_raises(self) -> None:
         """Lines 117-134: start() raises when 'nu' is not found."""
         from unittest.mock import patch
+
         client = RpcClient(RpcClientOptions(cli_path=None))
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(RpcClientError, match="Cannot find"):
-                await client.start()
+        with patch("shutil.which", return_value=None), pytest.raises(RpcClientError, match="Cannot find"):
+            await client.start()
 
     async def test_start_spawns_process(self) -> None:
         """start() spawns subprocess with correct args (lines 117-134)."""
-        from unittest.mock import AsyncMock, patch, MagicMock
+        from unittest.mock import AsyncMock, MagicMock, patch
 
-        client = RpcClient(RpcClientOptions(
-            cli_path="/usr/bin/fake-nu",
-            provider="anthropic",
-            model="claude-sonnet-4-20250514",
-            args=["--verbose"],
-            cwd="/tmp",
-            env={"FOO": "bar"},
-        ))
+        client = RpcClient(
+            RpcClientOptions(
+                cli_path="/usr/bin/fake-nu",
+                provider="anthropic",
+                model="claude-sonnet-4-20250514",
+                args=["--verbose"],
+                cwd="/tmp",
+                env={"FOO": "bar"},
+            )
+        )
 
         mock_process = MagicMock()
         mock_process.stdout = asyncio.StreamReader()
@@ -381,6 +380,7 @@ class TestRpcClientStart:
         if client._reader_task:
             client._reader_task.cancel()
             import contextlib
+
             with contextlib.suppress(asyncio.CancelledError):
                 await client._reader_task
 
@@ -399,7 +399,7 @@ class TestRpcClientStop:
 
     async def test_stop_terminates_process(self) -> None:
         """stop() terminates the subprocess (lines 146-153)."""
-        from unittest.mock import MagicMock, AsyncMock
+        from unittest.mock import MagicMock
 
         client = RpcClient()
 
@@ -862,6 +862,7 @@ class TestRpcClientContextManager:
     async def test_aenter_aexit(self) -> None:
         """Context manager calls start and stop."""
         from unittest.mock import AsyncMock
+
         client = RpcClient()
         client.start = AsyncMock()  # type: ignore[assignment]
         client.stop = AsyncMock()  # type: ignore[assignment]

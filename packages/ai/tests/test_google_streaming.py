@@ -530,7 +530,9 @@ class TestConvertTools:
         from nu_ai.providers.google import convert_tools
         from nu_ai.types import Tool
 
-        tools = [Tool(name="t", description="d", parameters={"type": "object", "properties": {"a": {"type": "string"}}})]
+        tools = [
+            Tool(name="t", description="d", parameters={"type": "object", "properties": {"a": {"type": "string"}}})
+        ]
         result = convert_tools(tools, use_parameters=True)
         assert result is not None
         assert "parameters" in result[0]["function_declarations"][0]
@@ -574,7 +576,14 @@ class TestConvertMessagesBasic:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-2.5-flash",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="toolUse",
                     timestamp=1,
                 ),
@@ -611,7 +620,14 @@ class TestConvertMessagesBasic:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-3-pro",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="toolUse",
                     timestamp=1,
                 ),
@@ -624,8 +640,9 @@ class TestConvertMessagesBasic:
 
     def test_assistant_same_provider_thinking_with_valid_signature(self) -> None:
         """Thinking block from same provider with valid base64 signature."""
-        from nu_ai.providers.google import convert_messages
         import base64
+
+        from nu_ai.providers.google import convert_messages
 
         valid_sig = base64.b64encode(b"test signature data here").decode()
         m = _model()
@@ -640,7 +657,14 @@ class TestConvertMessagesBasic:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-2.5-flash",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="stop",
                     timestamp=1,
                 ),
@@ -667,7 +691,14 @@ class TestConvertMessagesBasic:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-2.5-flash",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="stop",
                     timestamp=1,
                 ),
@@ -690,7 +721,14 @@ class TestConvertMessagesBasic:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-2.5-flash",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="toolUse",
                     timestamp=1,
                 ),
@@ -704,7 +742,9 @@ class TestConvertMessagesBasic:
             ]
         )
         contents = convert_messages(m, ctx)
-        tool_result_msg = [c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))]
+        tool_result_msg = [
+            c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))
+        ]
         assert len(tool_result_msg) == 1
         fr = tool_result_msg[0]["parts"][0]["function_response"]
         assert "error" in fr["response"]
@@ -735,7 +775,14 @@ class TestConvertMessagesBasic:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-3-pro",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="toolUse",
                     timestamp=1,
                 ),
@@ -753,7 +800,9 @@ class TestConvertMessagesBasic:
         )
         contents = convert_messages(m, ctx)
         # Gemini 3 multimodal: images go as parts on the function_response
-        tool_result_msgs = [c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))]
+        tool_result_msgs = [
+            c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))
+        ]
         fr = tool_result_msgs[0]["parts"][0]["function_response"]
         assert "parts" in fr
 
@@ -782,7 +831,14 @@ class TestConvertMessagesBasic:
                     api="google",
                     provider="google",
                     model="claude-3.5-sonnet",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="toolUse",
                     timestamp=1,
                 ),
@@ -796,7 +852,9 @@ class TestConvertMessagesBasic:
             ]
         )
         contents = convert_messages(m, ctx)
-        tool_result_msgs = [c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))]
+        tool_result_msgs = [
+            c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))
+        ]
         fr = tool_result_msgs[0]["parts"][0]["function_response"]
         assert "id" in fr
 
@@ -816,7 +874,14 @@ class TestConvertMessagesBasic:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-2.5-flash",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="toolUse",
                     timestamp=1,
                 ),
@@ -838,7 +903,9 @@ class TestConvertMessagesBasic:
         )
         contents = convert_messages(m, ctx)
         # Tool results should be collapsed into one user turn
-        tool_user_msgs = [c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))]
+        tool_user_msgs = [
+            c for c in contents if c["role"] == "user" and any("function_response" in p for p in c.get("parts", []))
+        ]
         assert len(tool_user_msgs) == 1
         assert len(tool_user_msgs[0]["parts"]) == 2
 
@@ -940,7 +1007,14 @@ class TestConvertMessages:
                     api="other",
                     provider="other",
                     model="other-model",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="stop",
                     timestamp=1,
                 ),
@@ -966,7 +1040,14 @@ class TestConvertMessages:
                     api="google-generative-ai",
                     provider="google",
                     model="gemini-2.5-flash",
-                    usage=Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0)),
+                    usage=Usage(
+                        input=0,
+                        output=0,
+                        cache_read=0,
+                        cache_write=0,
+                        total_tokens=0,
+                        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+                    ),
                     stop_reason="toolUse",
                     timestamp=1,
                 ),
@@ -1074,9 +1155,7 @@ class TestThinkingWithSignature:
                 response_id="resp_ts",
                 candidates=[
                     _ns(
-                        content=_ns(
-                            parts=[_ns(text="ing", thought=True, function_call=None, thought_signature=None)]
-                        ),
+                        content=_ns(parts=[_ns(text="ing", thought=True, function_call=None, thought_signature=None)]),
                         finish_reason=None,
                     )
                 ],
@@ -1182,5 +1261,3 @@ class TestStreamSimpleGoogle:
         config = kwargs.get("config", {})
         # Gemini 3 pro uses thinking_level instead of budget
         assert "thinking_level" in config.get("thinking_config", {})
-
-

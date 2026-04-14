@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from nu_coding_agent.utils.clipboard import _copy_sync, _copy_to_x11_clipboard, copy_to_clipboard
 from nu_coding_agent.utils.clipboard_image import (
     ClipboardImage,
@@ -18,7 +16,6 @@ from nu_coding_agent.utils.clipboard_image import (
     is_wayland_session,
     read_clipboard_image,
 )
-
 
 # ---- clipboard.py ---------------------------------------------------------
 
@@ -117,6 +114,7 @@ class TestCopySync:
             patch.dict("os.environ", {"WAYLAND_DISPLAY": "w0", "DISPLAY": ":0"}, clear=True),
         ):
             import subprocess as sp
+
             # First call (which wl-copy) raises, falling to x11
             mock_run.side_effect = [sp.CalledProcessError(1, "which"), MagicMock()]
             _copy_sync("hi")
@@ -297,9 +295,7 @@ class TestReadClipboardImageSync:
             "nu_coding_agent.utils.clipboard_image._read_clipboard_image_via_wl_paste",
             return_value=ClipboardImage(bytes=fake_png, mime_type="image/png"),
         ):
-            result = _read_clipboard_image_sync(
-                env={"WAYLAND_DISPLAY": "wayland-0"}, platform="linux"
-            )
+            result = _read_clipboard_image_sync(env={"WAYLAND_DISPLAY": "wayland-0"}, platform="linux")
             assert result is not None
 
     def test_linux_x11(self) -> None:
@@ -314,9 +310,7 @@ class TestReadClipboardImageSync:
                 return_value=ClipboardImage(bytes=fake_png, mime_type="image/png"),
             ),
         ):
-            result = _read_clipboard_image_sync(
-                env={"DISPLAY": ":0"}, platform="linux"
-            )
+            result = _read_clipboard_image_sync(env={"DISPLAY": ":0"}, platform="linux")
             assert result is not None
 
     def test_unsupported_platform_returns_none(self) -> None:
@@ -365,6 +359,7 @@ class TestRunCommand:
 
     def test_timeout(self) -> None:
         import subprocess
+
         from nu_coding_agent.utils.clipboard_image import _run_command
 
         with patch(
@@ -490,7 +485,7 @@ class TestReadViaOsascript:
         from nu_coding_agent.utils.clipboard_image import _CmdResult, _read_clipboard_image_via_osascript
 
         hex_data = b"\x89PNG".hex()
-        output = f"\u00abdata PNGf{hex_data}\u00bb".encode("utf-8")
+        output = f"\u00abdata PNGf{hex_data}\u00bb".encode()
         with patch("nu_coding_agent.utils.clipboard_image._run_command") as mock_cmd:
             mock_cmd.return_value = _CmdResult(ok=True, stdout=output)
             result = _read_clipboard_image_via_osascript()
@@ -571,8 +566,9 @@ class TestIsWsl:
 class TestConvertToPng:
     def test_success(self) -> None:
         import io
-        from PIL import Image
+
         from nu_coding_agent.utils.clipboard_image import _convert_to_png
+        from PIL import Image
 
         img = Image.new("RGB", (5, 5), "blue")
         buf = io.BytesIO()

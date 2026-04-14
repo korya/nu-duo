@@ -171,16 +171,19 @@ async def _drive_proxy(
             },
         }
 
-        async with httpx.AsyncClient() as client, client.stream(
-            "POST",
-            f"{options.proxy_url}/api/stream",
-            headers={
-                "Authorization": f"Bearer {options.auth_token}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=None,
-        ) as response:
+        async with (
+            httpx.AsyncClient() as client,
+            client.stream(
+                "POST",
+                f"{options.proxy_url}/api/stream",
+                headers={
+                    "Authorization": f"Bearer {options.auth_token}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=None,
+            ) as response,
+        ):
             if response.status_code != 200:
                 body = await response.aread()
                 msg = f"Proxy error: {response.status_code} {response.reason_phrase}"

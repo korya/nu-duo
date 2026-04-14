@@ -27,10 +27,17 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 def _default_client_id() -> str:
     # Google's public Gemini CLI OAuth client (not a secret —
     # embedded in every copy of the CLI, same as the upstream TS repo).
-    parts = ["NjgxMjU1ODA5Mzk1LW9v", "OGZ0Mm9wcmRybnA5ZTNh", "cWY2YXYzaG1kaWIxMzVq", "LmFwcHMuZ29vZ2xldXNl", "cmNvbnRlbnQuY29t"]
+    parts = [
+        "NjgxMjU1ODA5Mzk1LW9v",
+        "OGZ0Mm9wcmRybnA5ZTNh",
+        "cWY2YXYzaG1kaWIxMzVq",
+        "LmFwcHMuZ29vZ2xldXNl",
+        "cmNvbnRlbnQuY29t",
+    ]
     return base64.b64decode("".join(parts)).decode()
 
 

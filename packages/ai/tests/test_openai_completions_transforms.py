@@ -319,11 +319,13 @@ class TestGetCompat:
         assert compat.supports_strict_mode is False
 
     def test_groq_qwen_reasoning_map(self) -> None:
-        compat = detect_compat(_model(
-            model_id="qwen/qwen3-32b",
-            provider="groq",
-            base_url="https://api.groq.com",
-        ))
+        compat = detect_compat(
+            _model(
+                model_id="qwen/qwen3-32b",
+                provider="groq",
+                base_url="https://api.groq.com",
+            )
+        )
         assert compat.reasoning_effort_map.get("high") == "default"
 
 
@@ -755,7 +757,6 @@ class TestBuildParamsCompletions:
         assert params.get("reasoning", {}).get("effort") == "none"
 
     def test_tool_history_without_tools_adds_empty_tools(self) -> None:
-        from nu_ai.types import OpenAICompletionsOptions
 
         ctx = Context(
             messages=[
@@ -779,7 +780,7 @@ class TestBuildParamsCompletions:
         assert params.get("tools") == []
 
     def test_zai_tool_stream(self) -> None:
-        from nu_ai.types import OpenAICompletionsCompat, OpenAICompletionsOptions, Tool
+        from nu_ai.types import OpenAICompletionsCompat, Tool
 
         model = _model(
             compat=OpenAICompletionsCompat(zai_tool_stream=True),

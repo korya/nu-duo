@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nu_coding_agent.initial_message import InitialMessageResult, build_initial_message
+from nu_coding_agent.initial_message import build_initial_message
 
 
 class TestBuildInitialMessage:

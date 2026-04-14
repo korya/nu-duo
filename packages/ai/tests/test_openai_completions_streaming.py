@@ -390,9 +390,7 @@ class TestMultipleToolCallsStream:
             ),
         ]
         fake = _FakeAsyncOpenAI(chunks)
-        events = [
-            e async for e in stream_openai_completions(_model(), _ctx(), OpenAICompletionsOptions(), client=fake)
-        ]
+        events = [e async for e in stream_openai_completions(_model(), _ctx(), OpenAICompletionsOptions(), client=fake)]
         tool_ends = [e for e in events if isinstance(e, ToolCallEndEvent)]
         assert len(tool_ends) == 2
         assert tool_ends[0].tool_call.name == "bash"

@@ -8,11 +8,12 @@ Targets:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from nu_coding_agent.core.auth_storage import ApiKeyCredential, AuthStorage
+from nu_coding_agent.core.auth_storage import AuthStorage
 from nu_coding_agent.core.model_registry import ModelRegistry
 from nu_coding_agent.core.model_resolver import (
     ScopedModel,
@@ -24,8 +25,7 @@ from nu_coding_agent.core.model_resolver import (
     resolve_model_scope,
     restore_model_from_session,
 )
-from nu_coding_agent.modes.rpc.rpc_client import RpcClient, RpcClientError, RpcClientOptions
-
+from nu_coding_agent.modes.rpc.rpc_client import RpcClient, RpcClientOptions
 
 # ===========================================================================
 # RpcClient — start() with options, read_loop edge cases, stop timeout
@@ -52,10 +52,8 @@ class TestRpcClientStartOptions:
             assert client._reader_task is not None
             # Clean up
             client._reader_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await client._reader_task
-            except asyncio.CancelledError:
-                pass
 
     async def test_start_builds_correct_argv(self) -> None:
         opts = RpcClientOptions(
@@ -82,10 +80,8 @@ class TestRpcClientStartOptions:
         with patch("asyncio.create_subprocess_exec", side_effect=fake_create):
             await client.start()
             client._reader_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await client._reader_task
-            except asyncio.CancelledError:
-                pass
 
         # Check argv construction
         assert "/usr/bin/nu" in captured_args
@@ -238,7 +234,7 @@ class TestModelResolverMore:
         # Try matching by model name if any have names
         for m in models:
             if m.name:
-                result = _try_match_model(m.name[:5].lower(), models)
+                _try_match_model(m.name[:5].lower(), models)
                 # Just verify it doesn't crash
                 break
 
@@ -334,7 +330,7 @@ class TestModelResolverMore:
         assert result.model is not None
 
     def test_resolve_model_scope_glob_with_invalid_thinking(self, rich_registry: ModelRegistry) -> None:
-        scoped, warnings = resolve_model_scope(["openai/*:bogus_level"], rich_registry)
+        _scoped, _warnings = resolve_model_scope(["openai/*:bogus_level"], rich_registry)
         # bogus_level is not a valid thinking level, so it's treated as part of the glob
         # This should still find models or warn
 
@@ -365,5 +361,5 @@ class TestModelResolverMore:
             assert result is None
 
     def test_resolve_scope_exact_no_match_warns(self, rich_registry: ModelRegistry) -> None:
-        scoped, warnings = resolve_model_scope(["zzz-fake-model-zzz"], rich_registry)
+        _scoped, warnings = resolve_model_scope(["zzz-fake-model-zzz"], rich_registry)
         assert len(warnings) > 0

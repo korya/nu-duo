@@ -983,9 +983,7 @@ class TestConvertResponsesMessagesExtended:
             messages=[
                 UserMessage(content="hi", timestamp=1),
                 AssistantMessage(
-                    content=[
-                        ToolCall(id="call_1|fc_item", name="bash", arguments={"cmd": "ls"})
-                    ],
+                    content=[ToolCall(id="call_1|fc_item", name="bash", arguments={"cmd": "ls"})],
                     api="openai-responses",
                     provider="openai",
                     model="gpt-3.5",  # Different model, same provider and api
@@ -1150,7 +1148,7 @@ class TestResponseFailedVariants:
                 },
             }
         ]
-        with pytest.raises(RuntimeError, match="incomplete.*max_tokens"):
+        with pytest.raises(RuntimeError, match=r"incomplete.*max_tokens"):
             await _collect_events(events)
 
     async def test_response_failed_no_details(self) -> None:
@@ -1281,6 +1279,7 @@ class TestCreateClient:
             patch.dict("os.environ", {}, clear=False),
         ):
             import os
+
             os.environ.pop("OPENAI_API_KEY", None)
             with pytest.raises(ValueError, match="API key is required"):
                 create_client(model, ctx)
@@ -1310,7 +1309,7 @@ class TestCreateClient:
         mock_client = MagicMock()
         mock_openai_class = MagicMock(return_value=mock_client)
         with patch.dict("sys.modules", {"openai": MagicMock(AsyncOpenAI=mock_openai_class)}):
-            client = create_client(model, ctx, api_key="sk-key", options_headers={"X-Custom": "val"})
+            create_client(model, ctx, api_key="sk-key", options_headers={"X-Custom": "val"})
         call_kwargs = mock_openai_class.call_args[1]
         assert call_kwargs["default_headers"]["X-Custom"] == "val"
 
@@ -1407,7 +1406,7 @@ class TestTextDeltaEmptyContent:
                 },
             },
         ]
-        output, collected = await _collect_events(events)
+        _output, collected = await _collect_events(events)
         deltas = [e for e in collected if isinstance(e, TextDeltaEvent)]
         # The delta on empty content should be skipped
         assert len(deltas) == 0
@@ -1436,7 +1435,7 @@ class TestRefusalDeltaEmptyContent:
                 },
             },
         ]
-        output, collected = await _collect_events(events)
+        _output, collected = await _collect_events(events)
         # No text deltas from refusal
         deltas = [e for e in collected if isinstance(e, TextDeltaEvent)]
         assert len(deltas) == 0
@@ -1447,7 +1446,7 @@ class TestFunctionCallOutputItemDone:
         """output_item.done for function_call where item is a SimpleNamespace."""
         from types import SimpleNamespace
 
-        item_ns = SimpleNamespace(
+        SimpleNamespace(
             type="function_call",
             id="fc_x",
             call_id="c_x",
@@ -1478,7 +1477,7 @@ class TestFunctionCallOutputItemDone:
                 },
             },
         ]
-        output, collected = await _collect_events(events)
+        _output, collected = await _collect_events(events)
         end_events = [e for e in collected if isinstance(e, ToolCallEndEvent)]
         assert len(end_events) == 1
         assert end_events[0].tool_call.arguments == {"a": 1}
@@ -1682,7 +1681,7 @@ class TestOutputTextDeltaEdge:
                 "response": {"id": "resp_e", "status": "completed", "usage": None},
             },
         ]
-        output, collected = await _collect_events(events)
+        output, _collected = await _collect_events(events)
         # The text delta should have been skipped (no content parts)
         assert output.content[0].text == ""
 
@@ -1721,7 +1720,7 @@ class TestFunctionCallDoneWithoutDelta:
                 },
             },
         ]
-        output, collected = await _collect_events(events)
+        _output, collected = await _collect_events(events)
         tool_end = next(e for e in collected if isinstance(e, ToolCallEndEvent))
         assert tool_end.tool_call.arguments == {"cmd": "pwd"}
 

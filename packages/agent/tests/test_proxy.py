@@ -17,12 +17,21 @@ import json
 import warnings
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
+from nu_agent_core.proxy import (
+    ProxyMessageEventStream,
+    ProxyStreamOptions,
+    _context_to_dict,
+    _drive_proxy,
+    _make_partial,
+    _model_to_dict,
+    _parse_usage,
+    _process_proxy_event,
+)
 from nu_ai.types import (
     AssistantMessage,
-    Cost,
     DoneEvent,
     ErrorEvent,
     Model,
@@ -40,20 +49,7 @@ from nu_ai.types import (
     ToolCallDeltaEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
-    Usage,
 )
-from nu_agent_core.proxy import (
-    ProxyMessageEventStream,
-    ProxyStreamOptions,
-    _context_to_dict,
-    _drive_proxy,
-    _make_partial,
-    _model_to_dict,
-    _parse_usage,
-    _process_proxy_event,
-    stream_proxy,
-)
-
 
 # ---------------------------------------------------------------------------
 # Helpers

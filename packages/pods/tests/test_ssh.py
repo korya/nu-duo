@@ -159,7 +159,10 @@ def test_set_runners_partial_scp_only(reset_ssh_runners: None) -> None:
 
 async def test_ssh_exec_stream_keep_alive_and_force_tty(captured_argv: list[list[str]]) -> None:
     code = await ssh_exec_stream(
-        "ssh root@host", "cmd", keep_alive=True, force_tty=True,
+        "ssh root@host",
+        "cmd",
+        keep_alive=True,
+        force_tty=True,
     )
     assert code == 0
     argv = captured_argv[-1]

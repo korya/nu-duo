@@ -154,8 +154,7 @@ def _find_pip_command() -> list[str]:
     if shutil.which("pip"):
         return ["pip"]
     raise RuntimeError(
-        "Neither 'uv' nor 'pip' found on PATH. "
-        "Install uv (https://docs.astral.sh/uv/) or pip to manage packages."
+        "Neither 'uv' nor 'pip' found on PATH. Install uv (https://docs.astral.sh/uv/) or pip to manage packages."
     )
 
 
@@ -177,9 +176,7 @@ async def _run_pip(*args: str, check: bool = True) -> subprocess.CompletedProces
     )
     if check and result.returncode != 0:
         raise RuntimeError(
-            f"pip command failed (exit {result.returncode}):\n"
-            f"  cmd: {' '.join(cmd)}\n"
-            f"  stderr: {result.stderr.strip()}"
+            f"pip command failed (exit {result.returncode}):\n  cmd: {' '.join(cmd)}\n  stderr: {result.stderr.strip()}"
         )
     return result
 
@@ -560,14 +557,10 @@ class DefaultPackageManager:
             # Scan well-known agent_dir subdirectory
             d = agent / subdir
             if d.is_dir():
-                getattr(paths, f"{rtype}s").extend(
-                    _resolve_user_paths([str(d)], rtype, "user")
-                )
+                getattr(paths, f"{rtype}s").extend(_resolve_user_paths([str(d)], rtype, "user"))
             # Explicit paths from settings
             if settings_paths:
-                getattr(paths, f"{rtype}s").extend(
-                    _resolve_user_paths(settings_paths, rtype, "user-settings")
-                )
+                getattr(paths, f"{rtype}s").extend(_resolve_user_paths(settings_paths, rtype, "user-settings"))
 
         return paths
 
@@ -721,13 +714,15 @@ class DefaultPackageManager:
         for pkg in self.get_configured_packages():
             name = _package_name_from_source(pkg.source)
             version = _installed_version(name)
-            result.append({
-                "source": pkg.source,
-                "sourceType": pkg.source_type,
-                "enabled": pkg.enabled,
-                "name": name,
-                "version": version,
-            })
+            result.append(
+                {
+                    "source": pkg.source,
+                    "sourceType": pkg.source_type,
+                    "enabled": pkg.enabled,
+                    "name": name,
+                    "version": version,
+                }
+            )
         return result
 
     def invalidate_cache(self) -> None:

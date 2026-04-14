@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from nu_coding_agent.core.package_manager import (
     ConfiguredPackage,
     DefaultPackageManager,
-    PackageUpdate,
     ResolvedPaths,
     ResolvedResource,
     _package_name_from_source,
@@ -21,7 +18,6 @@ from nu_coding_agent.core.package_manager import (
     classify_source,
     create_package_manager,
 )
-
 
 # ---------------------------------------------------------------------------
 # classify_source
@@ -435,9 +431,8 @@ class TestFindPipCommand:
     def test_neither_found(self) -> None:
         from nu_coding_agent.core.package_manager import _find_pip_command
 
-        with patch("shutil.which", return_value=None):
-            with pytest.raises(RuntimeError, match="Neither"):
-                _find_pip_command()
+        with patch("shutil.which", return_value=None), pytest.raises(RuntimeError, match="Neither"):
+            _find_pip_command()
 
 
 class TestRunPip:
@@ -550,7 +545,9 @@ class TestFetchLatestVersion:
 
     @pytest.mark.asyncio
     async def test_returns_none_on_exception(self) -> None:
-        with patch("nu_coding_agent.core.package_manager._run_pip", new_callable=AsyncMock, side_effect=Exception("boom")):
+        with patch(
+            "nu_coding_agent.core.package_manager._run_pip", new_callable=AsyncMock, side_effect=Exception("boom")
+        ):
             result = await DefaultPackageManager._fetch_latest_version("my-pkg")
             assert result is None
 

@@ -20,9 +20,7 @@ from nu_coding_agent.config import CONFIG_DIR_NAME, get_agent_dir, get_bin_dir
 _MIGRATION_GUIDE_URL = (
     "https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/CHANGELOG.md#extensions-migration"
 )
-_EXTENSIONS_DOC_URL = (
-    "https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md"
-)
+_EXTENSIONS_DOC_URL = "https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md"
 
 
 @dataclass(slots=True)
@@ -185,8 +183,7 @@ def _check_deprecated_extension_dirs(base_dir: Path, label: str) -> list[str]:
             ]
             if custom:
                 warnings.append(
-                    f"{label} tools/ directory contains custom tools. "
-                    "Custom tools have been merged into extensions."
+                    f"{label} tools/ directory contains custom tools. Custom tools have been merged into extensions."
                 )
         except OSError:
             pass

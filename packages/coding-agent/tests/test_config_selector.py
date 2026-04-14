@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from nu_coding_agent.config_selector import (
     ConfigSelectorOptions,
     _ConfigSelectorApp,
@@ -59,6 +58,7 @@ class TestConfigSelectorApp:
         app = _ConfigSelectorApp(opts)
         lv = app._build_resource_list()
         from textual.widgets import ListView
+
         assert isinstance(lv, ListView)
 
     def test_build_resource_list_empty(self) -> None:
@@ -71,6 +71,7 @@ class TestConfigSelectorApp:
         # won't be empty and the "No configuration" branch won't fire.
         lv = app._build_resource_list()
         from textual.widgets import ListView
+
         assert isinstance(lv, ListView)
 
     def test_build_resource_list_no_getattr(self) -> None:
@@ -79,6 +80,7 @@ class TestConfigSelectorApp:
         app = _ConfigSelectorApp(opts)
         lv = app._build_resource_list()
         from textual.widgets import ListView
+
         assert isinstance(lv, ListView)
 
     @pytest.mark.asyncio

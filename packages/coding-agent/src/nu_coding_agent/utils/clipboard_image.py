@@ -48,6 +48,7 @@ _DEFAULT_MAX_BUFFER_BYTES: int = 50 * 1024 * 1024  # 50 MiB
 # Data types
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class ClipboardImage:
     """Raw image bytes together with their MIME type."""
@@ -59,6 +60,7 @@ class ClipboardImage:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def is_wayland_session(env: dict[str, str] | None = None) -> bool:
     """Return ``True`` when the session looks like Wayland."""
@@ -85,11 +87,7 @@ def extension_for_image_mime_type(mime_type: str) -> str | None:
 
 def _select_preferred_image_mime_type(mime_types: list[str]) -> str | None:
     """Pick the best MIME type from a list, preferring our supported types."""
-    normalised = [
-        (raw, _base_mime_type(raw))
-        for raw in (t.strip() for t in mime_types)
-        if raw.strip()
-    ]
+    normalised = [(raw, _base_mime_type(raw)) for raw in (t.strip() for t in mime_types) if raw.strip()]
     # Prefer our supported types in order
     for preferred in SUPPORTED_IMAGE_MIME_TYPES:
         for raw, base in normalised:
@@ -109,6 +107,7 @@ def _is_supported_image_mime_type(mime_type: str) -> bool:
 # ---------------------------------------------------------------------------
 # Subprocess runner
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class _CmdResult:
@@ -150,6 +149,7 @@ def _run_command(
 # Platform readers
 # ---------------------------------------------------------------------------
 
+
 def _read_clipboard_image_via_wl_paste() -> ClipboardImage | None:
     list_result = _run_command("wl-paste", ["--list-types"], timeout=_DEFAULT_LIST_TIMEOUT_MS)
     if not list_result.ok:
@@ -174,9 +174,7 @@ def _is_wsl(env: dict[str, str] | None = None) -> bool:
         return True
     try:
         release = Path("/proc/version").read_text(encoding="utf-8", errors="replace")
-        return bool(
-            "microsoft" in release.lower() or "wsl" in release.lower()
-        )
+        return bool("microsoft" in release.lower() or "wsl" in release.lower())
     except OSError:
         return False
 
@@ -194,13 +192,15 @@ def _read_clipboard_image_via_powershell() -> ClipboardImage | None:
         if not win_path:
             return None
 
-        ps_script = "; ".join([
-            "Add-Type -AssemblyName System.Windows.Forms",
-            "Add-Type -AssemblyName System.Drawing",
-            "$path = $env:NU_WSL_CLIPBOARD_IMAGE_PATH",
-            "$img = [System.Windows.Forms.Clipboard]::GetImage()",
-            "if ($img) { $img.Save($path, [System.Drawing.Imaging.ImageFormat]::Png); Write-Output 'ok' } else { Write-Output 'empty' }",
-        ])
+        ps_script = "; ".join(
+            [
+                "Add-Type -AssemblyName System.Windows.Forms",
+                "Add-Type -AssemblyName System.Drawing",
+                "$path = $env:NU_WSL_CLIPBOARD_IMAGE_PATH",
+                "$img = [System.Windows.Forms.Clipboard]::GetImage()",
+                "if ($img) { $img.Save($path, [System.Drawing.Imaging.ImageFormat]::Png); Write-Output 'ok' } else { Write-Output 'empty' }",
+            ]
+        )
 
         run_env = {**os.environ, "NU_WSL_CLIPBOARD_IMAGE_PATH": win_path}
         result = _run_command(
@@ -238,15 +238,11 @@ def _read_clipboard_image_via_xclip() -> ClipboardImage | None:
     candidate_types: list[str] = []
     if targets.ok:
         candidate_types = [
-            t.strip()
-            for t in targets.stdout.decode("utf-8", errors="replace").splitlines()
-            if t.strip()
+            t.strip() for t in targets.stdout.decode("utf-8", errors="replace").splitlines() if t.strip()
         ]
 
     preferred = _select_preferred_image_mime_type(candidate_types) if candidate_types else None
-    try_types: list[str] = (
-        [preferred, *SUPPORTED_IMAGE_MIME_TYPES] if preferred else list(SUPPORTED_IMAGE_MIME_TYPES)
-    )
+    try_types: list[str] = [preferred, *SUPPORTED_IMAGE_MIME_TYPES] if preferred else list(SUPPORTED_IMAGE_MIME_TYPES)
 
     for mime_type in try_types:
         data = _run_command("xclip", ["-selection", "clipboard", "-t", mime_type, "-o"])
@@ -280,7 +276,7 @@ def _read_clipboard_image_via_osascript() -> ClipboardImage | None:
     hex_start = raw.find("«data PNGf")
     if hex_start == -1:
         return None
-    hex_data = raw[hex_start + len("«data PNGf"):]
+    hex_data = raw[hex_start + len("«data PNGf") :]
     hex_end = hex_data.find("»")
     if hex_end == -1:
         return None
@@ -301,6 +297,7 @@ def _read_clipboard_image_via_osascript() -> ClipboardImage | None:
 # Format conversion
 # ---------------------------------------------------------------------------
 
+
 def _convert_to_png(data: bytes) -> bytes | None:
     """Convert arbitrary image bytes to PNG via Pillow. Returns ``None`` on failure."""
     try:
@@ -317,6 +314,7 @@ def _convert_to_png(data: bytes) -> bytes | None:
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
+
 
 def _read_clipboard_image_sync(
     env: dict[str, str] | None = None,

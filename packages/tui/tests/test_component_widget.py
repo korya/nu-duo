@@ -159,7 +159,7 @@ def test_render_uses_cached_lines() -> None:
     # Now render() should use the cached lines without calling component.render again
     from unittest.mock import patch
 
-    with patch.object(text, "render", wraps=text.render) as mock_render:
+    with patch.object(text, "render", wraps=text.render):
         # Set the widget size so render() uses width=40
         widget._size = (40, 1)  # pyright: ignore[reportAttributeAccessIssue]
         result = widget.render()

@@ -547,9 +547,8 @@ class TestAnthropicPureTransforms:
         assert map_stop_reason("sensitive") == "error"
 
     def test_map_stop_reason_unknown_raises(self) -> None:
-        from nu_ai.providers.anthropic import map_stop_reason
-
         import pytest
+        from nu_ai.providers.anthropic import map_stop_reason
 
         with pytest.raises(ValueError, match="Unhandled stop reason"):
             map_stop_reason("totally_unknown")
@@ -645,10 +644,12 @@ class TestAnthropicPureTransforms:
         from nu_ai.providers.anthropic import convert_content_blocks
         from nu_ai.types import ImageContent
 
-        result = convert_content_blocks([
-            TextContent(text="look"),
-            ImageContent(mime_type="image/png", data="abc"),
-        ])
+        result = convert_content_blocks(
+            [
+                TextContent(text="look"),
+                ImageContent(mime_type="image/png", data="abc"),
+            ]
+        )
         assert isinstance(result, list)
         assert result[0] == {"type": "text", "text": "look"}
         assert result[1]["type"] == "image"
@@ -1010,7 +1011,15 @@ class TestStreamAnthropicErrorStopReason:
 
 def _empty_usage():
     from nu_ai.types import Cost, Usage
-    return Usage(input=0, output=0, cache_read=0, cache_write=0, total_tokens=0, cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0))
+
+    return Usage(
+        input=0,
+        output=0,
+        cache_read=0,
+        cache_write=0,
+        total_tokens=0,
+        cost=Cost(input=0, output=0, cache_read=0, cache_write=0, total=0),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1136,7 +1145,6 @@ class TestStreamAnthropicOAuthToolRemap:
         """When is_oauth=True, tool_use name is remapped via from_claude_code_name."""
         from unittest.mock import patch
 
-        from nu_ai.providers.anthropic import create_client
         from nu_ai.types import Tool
 
         events = [
@@ -1160,7 +1168,7 @@ class TestStreamAnthropicOAuthToolRemap:
             _evt(
                 "content_block_delta",
                 index=0,
-                delta=SimpleNamespace(type="input_json_delta", partial_json='{}'),
+                delta=SimpleNamespace(type="input_json_delta", partial_json="{}"),
             ),
             _evt("content_block_stop", index=0),
             _evt(

@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import base64
-import os
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from nu_coding_agent.file_processor import ProcessedFiles, process_file_arguments
 
 
@@ -30,8 +27,9 @@ def empty_file(tmp_path: Path) -> Path:
 @pytest.fixture
 def png_file(tmp_path: Path) -> Path:
     """Create a minimal valid PNG file."""
-    from PIL import Image
     import io
+
+    from PIL import Image
 
     p = tmp_path / "test.png"
     img = Image.new("RGB", (10, 10), "red")
@@ -85,9 +83,7 @@ async def test_image_file_with_resize(png_file: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_multiple_files(text_file: Path, png_file: Path) -> None:
-    result = await process_file_arguments(
-        [str(text_file), str(png_file)], auto_resize=False
-    )
+    result = await process_file_arguments([str(text_file), str(png_file)], auto_resize=False)
     assert "Hello, world!" in result.text
     assert len(result.images) == 1
 

@@ -785,10 +785,12 @@ class TestToolExecutionOnUpdate:
                 on_update: Any = None,
             ) -> AgentToolResult[dict[str, Any]]:
                 if on_update:
-                    on_update(AgentToolResult(
-                        content=[TextContent(text="partial")],
-                        details={},
-                    ))
+                    on_update(
+                        AgentToolResult(
+                            content=[TextContent(text="partial")],
+                            details={},
+                        )
+                    )
                 return AgentToolResult(
                     content=[TextContent(text="final")],
                     details={},
@@ -802,7 +804,7 @@ class TestToolExecutionOnUpdate:
             async def emit(event: AgentEvent) -> None:
                 events.append(event)
 
-            messages = await run_agent_loop(
+            await run_agent_loop(
                 prompts=[UserMessage(content="hi", timestamp=1)],
                 context=AgentContext(tools=[tool]),
                 config=AgentLoopConfig(
@@ -838,10 +840,12 @@ class TestToolExecutionOnUpdate:
                 on_update: Any = None,
             ) -> AgentToolResult[dict[str, Any]]:
                 if on_update:
-                    on_update(AgentToolResult(
-                        content=[TextContent(text="partial")],
-                        details={},
-                    ))
+                    on_update(
+                        AgentToolResult(
+                            content=[TextContent(text="partial")],
+                            details={},
+                        )
+                    )
                 raise RuntimeError("boom after update")
 
             tool = _bash_tool()
@@ -866,7 +870,7 @@ class TestToolExecutionOnUpdate:
             assert "tool_execution_update" in types
             assert "tool_execution_end" in types
             # Tool result should be an error
-            tool_result = [m for m in messages if isinstance(m, ToolResultMessage)][0]
+            tool_result = next(m for m in messages if isinstance(m, ToolResultMessage))
             assert tool_result.is_error is True
             assert "boom after update" in tool_result.content[0].text
         finally:

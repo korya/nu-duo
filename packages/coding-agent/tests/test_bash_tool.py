@@ -226,7 +226,9 @@ class TestBashChunkEviction:
             return 0
 
         updates: list[Any] = []
-        tool = create_bash_tool(str(tmp_path), options=BashToolOptions(operations=BashOperations(exec=multi_chunk_exec)))
+        tool = create_bash_tool(
+            str(tmp_path), options=BashToolOptions(operations=BashOperations(exec=multi_chunk_exec))
+        )
         result = await tool.execute("c1", {"command": "ignored"}, on_update=updates.append)
         # Output was huge, so it should be truncated
         assert isinstance(result.content[0], TextContent)
