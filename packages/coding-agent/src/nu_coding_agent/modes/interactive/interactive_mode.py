@@ -63,10 +63,32 @@ _BASH_TOOL_NAMES = {"bash", "Bash"}
 
 # Slash commands for autocomplete
 _SLASH_COMMANDS = [
-    "/help", "/exit", "/quit", "/model", "/models", "/compact", "/clear",
-    "/session", "/sessions", "/settings", "/theme", "/export", "/copy",
-    "/name", "/changelog", "/hotkeys", "/fork", "/resume", "/login",
-    "/logout", "/new", "/reload", "/share", "/import", "/thinking", "/debug",
+    "/help",
+    "/exit",
+    "/quit",
+    "/model",
+    "/models",
+    "/compact",
+    "/clear",
+    "/session",
+    "/sessions",
+    "/settings",
+    "/theme",
+    "/export",
+    "/copy",
+    "/name",
+    "/changelog",
+    "/hotkeys",
+    "/fork",
+    "/resume",
+    "/login",
+    "/logout",
+    "/new",
+    "/reload",
+    "/share",
+    "/import",
+    "/thinking",
+    "/debug",
 ]
 
 
@@ -287,7 +309,7 @@ class InteractiveApp(App[None]):
         # -- Tab: accept autocomplete suggestion instead of focus-cycling ---
 
         if key == "tab":
-            suggestion = inp._suggestion
+            suggestion: str = getattr(inp, "_suggestion", "")
             if suggestion and len(suggestion) > len(inp.value):
                 event.prevent_default()
                 event.stop()
